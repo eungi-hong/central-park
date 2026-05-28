@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+  <Document name="central-park.ZPM">
+    <Module>
+      <Name>central-park</Name>
+      <Version>0.1.0</Version>
+      <Description>Conversational FHIR Triage Assistant. An AI agent called from inside an IRIS Interoperability production, grounded on the patient's FHIR record.</Description>
+      <Keywords>fhir ai agent langgraph triage interoperability</Keywords>
+      <Author>
+        <Person>Eungi Hong</Person>
+        <CopyrightDate>2026</CopyrightDate>
+      </Author>
+      <Packaging>module</Packaging>
+      <SourcesRoot>src/cls</SourcesRoot>
+
+      <!-- ObjectScript: load the entire CentralPark package -->
+      <Resource Name="CentralPark.PKG"/>
+
+      <!-- REST app: serves the chat endpoint -->
+      <CSPApplication
+        Url="/centralpark"
+        Recurse="1"
+        DispatchClass="CentralPark.REST.Dispatch"
+        AuthenticationMethods="64"
+        UseCookies="2"
+        CookiePath="/centralpark"
+      />
+
+      <!-- Default dependencies. ZPM resolves these from the public registry. -->
+      <Dependencies>
+        <ModuleReference>
+          <Name>ipm</Name>
+          <Version>0.7.0</Version>
+        </ModuleReference>
+      </Dependencies>
+    </Module>
+  </Document>
+</Export>

@@ -1,0 +1,44 @@
+services:
+  iris:
+    build: .
+    container_name: central-park-iris
+    ports:
+      - "1972:1972"     # SuperServer (JDBC/ODBC, xDBC, IRIS Native)
+      - "52773:52773"   # Web (Management Portal, FHIR endpoint, REST)
+    environment:
+      IRIS_USERNAME: ${IRIS_USERNAME:-_SYSTEM}
+      IRIS_PASSWORD: ${IRIS_PASSWORD:-SYS}
+    volumes:
+      # Source bind-mount for ObjectScript edits during development. Reload
+      # changed classes inside the container with:
+      #   docker compose exec iris iris session IRIS -U CENTRALPARK \
+      #       'do $system.OBJ.LoadDir("/home/irisowner/central-park/src/cls","ck",,1)'
+      - ./src/cls:/home/irisowner/central-park/src/cls
+      - ./iris-config:/home/irisowner/central-park/iris-config
+
+  agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: central-park-agent
+    ports:
+      - "8001:8000"
+    environment:
+      CP_LLM_PROVIDER: ${CP_LLM_PROVIDER:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CP_OPENAI_MODEL: ${CP_OPENAI_MODEL:-gpt-4o-mini}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CP_ANTHROPIC_MODEL: ${CP_ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
+      CP_OLLAMA_BASE_URL: ${CP_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      CP_OLLAMA_MODEL: ${CP_OLLAMA_MODEL:-llama3.1:8b}
+      CP_FHIR_BASE_URL: ${CP_FHIR_BASE_URL:-http://iris:52773/csp/healthshare/centralpark/fhir/r4}
+      CP_FHIR_USER: ${CP_FHIR_USER:-_SYSTEM}
+      CP_FHIR_PASSWORD: ${CP_FHIR_PASSWORD:-SYS}
+    volumes:
+      # Live-reload for Python edits. With uvicorn --reload (set in dev only)
+      # the sidecar picks up changes without a rebuild.
+      - ./src/python/central_park:/app/central_park
+    depends_on:
+      - iris
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

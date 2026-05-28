@@ -1,0 +1,41 @@
+// Boot-time setup for Central Park.
+//
+// Run from the Dockerfile against a freshly started IRIS for Health instance.
+// Each line is a single ObjectScript statement, because stdin-fed iris session
+// parses line by line and refuses multi-line brace blocks. Complex logic lives
+// in CentralPark.Install.Run() which is compiled and so can use braces freely.
+
+zn "%SYS"
+write !,"=== Central Park bootstrap ==="
+
+set dbdir = "/usr/irissys/mgr/centralpark/"
+set sc = ##class(SYS.Database).CreateDatabase(dbdir)
+if 'sc write !,"CreateDatabase failed: ",$system.Status.GetErrorText(sc)
+if 'sc halt
+
+set dbprops("Directory") = dbdir
+set sc = ##class(Config.Databases).Create("CENTRALPARK", .dbprops)
+if 'sc write !,"Config.Databases.Create failed: ",$system.Status.GetErrorText(sc)
+if 'sc halt
+
+set nsprops("Globals") = "CENTRALPARK"
+set nsprops("Routines") = "CENTRALPARK"
+set sc = ##class(Config.Namespaces).Create("CENTRALPARK", .nsprops)
+if 'sc write !,"Config.Namespaces.Create failed: ",$system.Status.GetErrorText(sc)
+if 'sc halt
+write !,"Namespace CENTRALPARK created."
+
+set sc = ##class(%EnsembleMgr).EnableNamespace("CENTRALPARK", 1)
+if 'sc write !,"EnableNamespace failed: ",$system.Status.GetErrorText(sc)
+if 'sc halt
+write !,"Interoperability enabled."
+
+zn "CENTRALPARK"
+do $system.OBJ.LoadDir("/home/irisowner/central-park/src/cls", "ck", , 1)
+write !,"Classes loaded."
+
+do ##class(CentralPark.Install).Run()
+
+do $zf(-1, "touch /tmp/centralpark.bootstrap.ok")
+write !,"=== Bootstrap complete ==="
+halt
