@@ -6,11 +6,14 @@ services:
       - "1972:1972"     # SuperServer (JDBC/ODBC, xDBC, IRIS Native)
       - "52773:52773"   # Web (Management Portal, FHIR endpoint, REST)
     environment:
+      # Forwarded into the container so Install.cls's InstallEmbeddingConfig
+      # can stamp the key into the %Embedding.Config row at boot.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       IRIS_USERNAME: ${IRIS_USERNAME:-_SYSTEM}
       IRIS_PASSWORD: ${IRIS_PASSWORD:-SYS}
     volumes:
-      # Source bind-mount for ObjectScript edits during development. Reload
-      # changed classes inside the container with:
+      # Source bind-mounts for in-place edits during development.
+      # Reload changed ObjectScript classes inside the container with:
       #   docker compose exec iris iris session IRIS -U CENTRALPARK \
       #       'do $system.OBJ.LoadDir("/home/irisowner/central-park/src/cls","ck",,1)'
       - ./src/cls:/home/irisowner/central-park/src/cls
@@ -29,16 +32,56 @@ services:
       CP_OPENAI_MODEL: ${CP_OPENAI_MODEL:-gpt-4o-mini}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CP_ANTHROPIC_MODEL: ${CP_ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
-      CP_OLLAMA_BASE_URL: ${CP_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      CP_OLLAMA_MODEL: ${CP_OLLAMA_MODEL:-llama3.1:8b}
+      CP_OLLAMA_BASE_URL: ${CP_OLLAMA_BASE_URL:-http://ollama:11434}
+      CP_OLLAMA_MODEL: ${CP_OLLAMA_MODEL:-llama3.2:3b}
       CP_FHIR_BASE_URL: ${CP_FHIR_BASE_URL:-http://iris:52773/csp/healthshare/centralpark/fhir/r4}
       CP_FHIR_USER: ${CP_FHIR_USER:-_SYSTEM}
       CP_FHIR_PASSWORD: ${CP_FHIR_PASSWORD:-SYS}
+      CP_IRIS_REST_BASE_URL: ${CP_IRIS_REST_BASE_URL:-http://iris:52773/centralpark}
     volumes:
-      # Live-reload for Python edits. With uvicorn --reload (set in dev only)
-      # the sidecar picks up changes without a rebuild.
+      # Live-reload for Python edits.
       - ./src/python/central_park:/app/central_park
     depends_on:
-      - iris
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      iris:
+        condition: service_started
+
+  # --- Optional services -----------------------------------------------------
+  # Bundled Ollama for offline chat. Disabled by default because the chat path
+  # on Apple Silicon Docker Desktop has hit llama.cpp runner crashes for us;
+  # judges on x86 Linux can enable it cleanly. To use, add `CP_LLM_PROVIDER=ollama`
+  # to `.env` and start with:  docker compose --profile ollama up
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: central-park-ollama
+    profiles: ["ollama"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: central-park-ollama-init
+    profiles: ["ollama"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Pulling llama3.2:3b (chat) ..." &&
+        ollama pull llama3.2:3b &&
+        echo "All models ready."
+    restart: "no"
+
+volumes:
+  ollama-models:
