@@ -34,6 +34,12 @@ XData ProductionDefinition
     <Setting Target="Adapter" Name="HTTPServer">agent</Setting>
     <Setting Target="Adapter" Name="HTTPPort">8000</Setting>
     <Setting Target="Adapter" Name="URL">/run</Setting>
+    <!-- A llama3.2:3b cold-start on CPU can take 20-40s; first warm-call ~10s.
+         FailureTimeout caps the operation's wait on the adapter and must
+         exceed the slowest expected response. ResponseTimeout is the
+         per-request HTTP socket timeout. -->
+    <Setting Target="Host" Name="FailureTimeout">180</Setting>
+    <Setting Target="Adapter" Name="ResponseTimeout">120</Setting>
   </Item>
 
 </Production>

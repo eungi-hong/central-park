@@ -1,20 +1,20 @@
-"""IRIS vector-search tool over a seeded triage-guidelines corpus.
+"""Vector-search tool over the seeded triage-guidelines corpus.
 
-Iteration 1: stub returning an empty list.
+The agent posts the raw query text to /centralpark/vector/search. IRIS
+embeds it via %Embedding.OpenAI (native AI Hub provider) and runs the
+HNSW-indexed cosine search. We just unpack the JSON.
 
-Iteration 2 will:
-  1. Embed the query with the configured embedding model (likely
-     sentence-transformers/all-MiniLM-L6-v2 to keep it offline).
-  2. Run a SQL query against IRIS like:
-        SELECT TOP ? source, snippet,
-               VECTOR_COSINE(embedding, TO_VECTOR(?, double)) AS score
-        FROM CentralPark_Data.Guideline
-        ORDER BY score DESC
+Failures degrade gracefully to an empty hit list so the agent's reason
+step still has a chance to produce something useful.
 """
 
 from __future__ import annotations
 
 from typing import TypedDict
+
+import httpx
+
+from central_park.config import load
 
 
 class GuidelineHit(TypedDict):
@@ -24,6 +24,20 @@ class GuidelineHit(TypedDict):
 
 
 def search_guidelines(query: str, k: int = 5) -> list[GuidelineHit]:
-    # TODO(iteration-2): real vector search against IRIS.
-    _ = query, k
-    return []
+    cfg = load()
+    auth = (cfg.fhir_user, cfg.fhir_password) if cfg.fhir_user else None
+    try:
+        resp = httpx.post(
+            f"{cfg.iris_rest_base_url}/vector/search",
+            json={"query": query, "k": k},
+            auth=auth,
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+    except Exception:
+        return []
+
+    return [
+        {"source": h["source"], "snippet": h["snippet"], "score": h["score"]}
+        for h in resp.json().get("hits", [])
+    ]

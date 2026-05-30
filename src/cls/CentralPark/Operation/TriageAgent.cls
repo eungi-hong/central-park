@@ -43,6 +43,27 @@ Method OnMessage(pRequest As CentralPark.Message.AgentRequest, Output pResponse 
         }
     }
     set pResponse.Body = respBody
+
+    // Parse the agent response. If the level is urgent, raise an Ens alert
+    // so the production's alert handler can route it (paging, email, etc.).
+    // The Python tool has already written a FHIR Communication; this is the
+    // interop-side companion so the escalation flows through both surfaces.
+    try {
+        set parsed = {}.%FromJSON(respBody)
+        set level = parsed.%Get("level")
+        if (level = "urgent-care") || (level = "ed") {
+            set alertReq = ##class(Ens.AlertRequest).%New()
+            set alertReq.SourceConfigName = ..%ConfigName
+            set alertReq.AlertText = "Central Park triage level=" _ level _
+                " patient=" _ pRequest.PatientID _
+                " summary=" _ $extract(parsed.%Get("summary"), 1, 200)
+            do ..SendAlert(alertReq)
+        }
+    } catch ex {
+        // Bad/missing JSON shouldn't block the response; log and continue.
+        $$$LOGWARNING("Could not parse agent response for alerting: " _ ex.DisplayString())
+    }
+
     quit $$$OK
 }
 

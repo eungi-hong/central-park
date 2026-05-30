@@ -7,12 +7,31 @@ forwards the response straight back to the REST client.
 
 from __future__ import annotations
 
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from pydantic import BaseModel
 
 from central_park.agent import run
+from central_park.seed_module import seed_guidelines
 
-app = FastAPI(title="Central Park agent", version="0.1.0")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Seed the guideline corpus into IRIS on startup. Idempotent (upserts on
+    # slug). All failures here are non-fatal so the agent still boots in
+    # degraded states (no API key, IRIS not yet ready, etc.).
+    try:
+        seed_guidelines()
+    except Exception:
+        logging.getLogger("central_park.startup").exception("seed_guidelines failed (non-fatal)")
+    yield
+
+
+app = FastAPI(title="Central Park agent", version="0.1.0", lifespan=lifespan)
 
 
 class RunRequest(BaseModel):
