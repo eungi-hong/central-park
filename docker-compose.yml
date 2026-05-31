@@ -18,6 +18,7 @@ services:
       #       'do $system.OBJ.LoadDir("/home/irisowner/central-park/src/cls","ck",,1)'
       - ./src/cls:/home/irisowner/central-park/src/cls
       - ./iris-config:/home/irisowner/central-park/iris-config
+      - ./web:/home/irisowner/central-park/web
 
   agent:
     build:

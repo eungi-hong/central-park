@@ -7,7 +7,7 @@ Built for the [InterSystems Programming Contest: AI Agents for FHIR](https://ope
 ## Quickstart
 
 ```bash
-git clone https://github.com/eungi-h/central-park.git
+git clone https://github.com/eungi-hong/central-park.git
 cd central-park
 cp .env.example .env
 # in .env: set OPENAI_API_KEY=sk-...
