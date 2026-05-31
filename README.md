@@ -219,6 +219,70 @@ Iteration 3 (current)
 - [ ] 3 minute screen recording for the demo video
 - [ ] OpenExchange listing prep
 
+## Iteration 4: structured interview UI + FHIR Questionnaire/QuestionnaireResponse
+
+### What was added
+
+A third container (`central-park-ui`, Streamlit on port 8501) replaces the curl-only interface with a chat-based structured intake interview. After the interview the agent produces a **clinician handoff summary** (triage level, HPI narrative, red flags, recommended actions, cited guidelines) grounded on the patient's FHIR record. Every completed interview is persisted to FHIR as a `QuestionnaireResponse`, linked to the `Questionnaire/triage-intake` definition seeded at agent startup.
+
+### New flow
+
+```
+http://localhost:8501  (Streamlit UI)
+        │
+        │  1. 6 structured questions answered in chat
+        │
+        │  2. POST QuestionnaireResponse → FHIR R4
+        │         /csp/healthshare/centralpark/fhir/r4/QuestionnaireResponse
+        │
+        │  3. POST /interview { patient_id, questionnaire_response_id }
+        ▼
+central-park-agent  (FastAPI)
+        │
+        │  GET QuestionnaireResponse/{id}    ← fetch answers back from FHIR
+        │  GET patient context               ← FHIR fan-out (existing)
+        │  POST /centralpark/vector/search   ← IRIS vector search (existing)
+        │  LLM call with handoff.txt prompt  ← returns structured handoff JSON
+        ▼
+        clinician handoff summary displayed in UI
+```
+
+### New and changed files
+
+| File | Change |
+| --- | --- |
+| `ui/app.py` | Streamlit chat interview — 6 questions, posts QR to FHIR, calls `/interview`, renders handoff summary |
+| `ui/Dockerfile` | python:3.12-slim, port 8501 |
+| `ui/requirements.txt` | streamlit, requests |
+| `src/python/central_park/prompts/handoff.txt` | Clinician-facing LLM prompt — returns `triage_level`, `chief_complaint`, `hpi`, `red_flags`, `recommended_actions`, `citations` |
+| `iris-config/seed/questionnaire-triage.json` | FHIR Questionnaire resource definition with 6 `linkId`s |
+| `src/python/central_park/seed_module.py` | Added `seed_questionnaire()` — PUTs the Questionnaire definition to FHIR at agent startup; idempotent |
+| `src/python/central_park/main.py` | Added `POST /interview` endpoint, `InterviewRequest` / `HandoffResponse` models, calls `seed_questionnaire()` at startup |
+| `src/python/central_park/agent.py` | Added `run_interview(patient_id, questionnaire_response_id)` — fetches QR from FHIR, vector searches, calls LLM with handoff prompt |
+| `src/python/central_park/tools/fhir.py` | Added `post_questionnaire_response()` and `get_questionnaire_response()`; both handle IRIS's empty-body 201 by falling back to the `Location` response header for the resource id |
+| `src/python/central_park/tools/__init__.py` | Exported new fhir functions |
+| `docker-compose.yml` | Added `ui` service; wired `CP_AGENT_BASE_URL`, `CP_FHIR_BASE_URL`, `CP_FHIR_USER`, `CP_FHIR_PASSWORD` into it |
+
+### Quickstart (iteration 4)
+
+```bash
+docker compose up --build
+# wait for "Production started" in IRIS logs (~90 s), then:
+docker compose restart agent   # seeds Questionnaire into FHIR
+```
+
+Open **http://localhost:8501**, enter patient ID `demo-patient-1`, answer the 6 questions.
+
+### Verify the QuestionnaireResponse was saved
+
+```bash
+curl -s -u _SYSTEM:SYS "http://localhost:52773/csp/healthshare/centralpark/fhir/r4/QuestionnaireResponse?patient=demo-patient-1" | python3 -m json.tool | grep -E '"id"|"valueString"|"linkId"|"authored"'
+```
+
+### Note on data persistence
+
+FHIR data (patient records, QuestionnaireResponses, Communications) is stored in IRIS's global storage inside the container and is not mounted to a host volume. It survives `docker compose stop` / `start` but is lost on `docker compose down`. Add a named volume for `/usr/irissys/mgr/centralpark` in `docker-compose.yml` to persist across rebuilds.
+
 ## License
 
 MIT, see `LICENSE`.

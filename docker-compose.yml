@@ -46,6 +46,21 @@ services:
       iris:
         condition: service_started
 
+  ui:
+    build:
+      context: ./ui
+    container_name: central-park-ui
+    ports:
+      - "8501:8501"
+    environment:
+      CP_AGENT_BASE_URL: ${CP_AGENT_BASE_URL:-http://agent:8000}
+      CP_FHIR_BASE_URL: ${CP_FHIR_BASE_URL:-http://iris:52773/csp/healthshare/centralpark/fhir/r4}
+      CP_FHIR_USER: ${CP_FHIR_USER:-_SYSTEM}
+      CP_FHIR_PASSWORD: ${CP_FHIR_PASSWORD:-SYS}
+    depends_on:
+      iris:
+        condition: service_started
+
   # --- Optional services -----------------------------------------------------
   # Bundled Ollama for offline chat. Disabled by default because the chat path
   # on Apple Silicon Docker Desktop has hit llama.cpp runner crashes for us;

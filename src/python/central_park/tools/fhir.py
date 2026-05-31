@@ -13,11 +13,14 @@ cares about display strings, codes, and dates.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import TypedDict
 
 import httpx
 
 from central_park.config import load
+
+QUESTIONNAIRE_REF = "Questionnaire/triage-intake"
 
 
 class PatientContext(TypedDict):
@@ -128,6 +131,66 @@ def _trim_allergy(r: dict) -> dict:
             for m in reaction.get("manifestation", [])
         ],
     }
+
+
+def post_questionnaire_response(patient_id: str, qa_items: list[dict]) -> str:
+    """POST a QuestionnaireResponse to FHIR and return the server-assigned id.
+
+    Each item in qa_items must have keys: link_id, question, answer.
+    """
+    authored = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload = {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": QUESTIONNAIRE_REF,
+        "status": "completed",
+        "subject": {"reference": f"Patient/{patient_id}"},
+        "authored": authored,
+        "item": [
+            {
+                "linkId": item["link_id"],
+                "text": item["question"],
+                "answer": [{"valueString": item["answer"]}],
+            }
+            for item in qa_items
+        ],
+    }
+    with _client() as c:
+        resp = c.post(
+            "/QuestionnaireResponse",
+            json=payload,
+            headers={"Content-Type": "application/fhir+json"},
+        )
+        resp.raise_for_status()
+    new_id = ""
+    if resp.content:
+        try:
+            new_id = resp.json().get("id", "")
+        except ValueError:
+            pass
+    if not new_id:
+        location = resp.headers.get("Location") or resp.headers.get("Content-Location") or ""
+        parts = [p for p in location.split("/") if p]
+        if "QuestionnaireResponse" in parts:
+            idx = parts.index("QuestionnaireResponse")
+            if idx + 1 < len(parts):
+                new_id = parts[idx + 1]
+    return new_id
+
+
+def get_questionnaire_response(qr_id: str) -> list[dict]:
+    """Fetch a QuestionnaireResponse and return items as [{link_id, question, answer}]."""
+    with _client() as c:
+        resp = c.get(f"/QuestionnaireResponse/{qr_id}")
+        resp.raise_for_status()
+    items = []
+    for item in resp.json().get("item", []):
+        answers = item.get("answer") or []
+        items.append({
+            "link_id": item.get("linkId", ""),
+            "question": item.get("text", ""),
+            "answer": answers[0].get("valueString", "") if answers else "",
+        })
+    return items
 
 
 def get_patient_context(patient_id: str) -> PatientContext:

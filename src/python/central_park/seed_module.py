@@ -24,6 +24,43 @@ from central_park.llm import get_provider
 log = logging.getLogger("central_park.seed")
 _CORPUS_PATH = pathlib.Path(__file__).parent / "data" / "guidelines.json"
 
+_QUESTIONNAIRE = {
+    "resourceType": "Questionnaire",
+    "id": "triage-intake",
+    "url": "http://centralpark.example/fhir/Questionnaire/triage-intake",
+    "version": "1.0",
+    "title": "Triage Intake Interview",
+    "status": "active",
+    "subjectType": ["Patient"],
+    "item": [
+        {"linkId": "chief-complaint",     "text": "What's your main concern today? Please describe what's been happening.", "type": "text", "required": True},
+        {"linkId": "onset",               "text": "When did this start, and has it been getting better, worse, or staying the same?", "type": "text", "required": True},
+        {"linkId": "severity",            "text": "On a scale of 1 to 10, how would you rate the severity right now?", "type": "string", "required": True},
+        {"linkId": "associated-symptoms", "text": "Are you experiencing any of the following: shortness of breath, chest tightness, fever, nausea, dizziness, or weakness on one side?", "type": "text", "required": True},
+        {"linkId": "history",             "text": "Do you have any history of similar symptoms, or any recent illness, injury, or surgery?", "type": "text", "required": True},
+        {"linkId": "self-treatment",      "text": "Have you tried anything to manage this so far — any medications or home remedies?", "type": "text", "required": True},
+    ],
+}
+
+
+def seed_questionnaire() -> None:
+    """PUT the triage Questionnaire definition into FHIR. Idempotent."""
+    cfg = load()
+    auth = (cfg.fhir_user, cfg.fhir_password) if cfg.fhir_user else None
+    try:
+        resp = httpx.put(
+            f"{cfg.fhir_base_url}/Questionnaire/triage-intake",
+            json=_QUESTIONNAIRE,
+            auth=auth,
+            headers={"Content-Type": "application/fhir+json", "Accept": "application/fhir+json"},
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        body = resp.json() if resp.content else {}
+        log.info("Questionnaire seed: status=%s id=%s", resp.status_code, body.get("id", "triage-intake"))
+    except Exception as e:
+        log.warning("Questionnaire seed failed: %s", e)
+
 
 def seed_guidelines() -> None:
     cfg = load()

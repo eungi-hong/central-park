@@ -31,10 +31,13 @@ from typing import Literal, TypedDict
 from langgraph.graph import StateGraph, START, END
 
 from central_park.llm import get_provider
-from central_park.tools import create_alert, get_patient_context, search_guidelines
+from central_park.tools import create_alert, get_patient_context, get_questionnaire_response, search_guidelines
 
 _PROMPT_PATH = pathlib.Path(__file__).parent / "prompts" / "triage.txt"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
+
+_HANDOFF_PROMPT_PATH = pathlib.Path(__file__).parent / "prompts" / "handoff.txt"
+_HANDOFF_PROMPT = _HANDOFF_PROMPT_PATH.read_text(encoding="utf-8")
 
 TriageLevel = Literal["self-care", "see-gp", "urgent-care", "ed"]
 
@@ -121,6 +124,52 @@ _GRAPH = _build_graph()
 
 
 # --- public entrypoint ------------------------------------------------------
+
+
+def run_interview(patient_id: str, questionnaire_response_id: str) -> dict:
+    """Generate a clinician handoff summary from a stored QuestionnaireResponse.
+
+    Fetches the QR from FHIR by id, retrieves matching guidelines via vector
+    search, then asks the LLM to produce a structured clinician handoff.
+    Called from the FastAPI /interview endpoint.
+    """
+    provider = get_provider()
+    patient_context = get_patient_context(patient_id)
+
+    # Fetch the answers the patient gave during the interview.
+    qa_transcript = get_questionnaire_response(questionnaire_response_id)
+
+    # Use chief-complaint + onset answers as the vector search query.
+    query = " ".join(
+        item["answer"] for item in qa_transcript[:2] if item.get("answer")
+    )
+    guidelines = search_guidelines(query, k=5)
+
+    user_payload = json.dumps(
+        {
+            "patient_context": patient_context,
+            "guidelines": guidelines,
+            "interview_transcript": [
+                {"question": item["question"], "answer": item["answer"]}
+                for item in qa_transcript
+            ],
+        },
+        ensure_ascii=False,
+    )
+    raw = provider.complete(
+        system=_HANDOFF_PROMPT,
+        messages=[{"role": "user", "content": user_payload}],
+    )
+    parsed = json.loads(raw)
+    return {
+        "triage_level": parsed.get("triage_level", "see-gp"),
+        "chief_complaint": parsed.get("chief_complaint", ""),
+        "hpi": parsed.get("hpi", ""),
+        "red_flags": parsed.get("red_flags", []),
+        "recommended_actions": parsed.get("recommended_actions", []),
+        "citations": parsed.get("citations", []),
+        "questionnaire_response_id": questionnaire_response_id,
+    }
 
 
 def run(patient_id: str, message: str, conversation_id: str | None = None) -> dict:

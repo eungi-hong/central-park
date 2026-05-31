@@ -13,8 +13,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from central_park.agent import run
-from central_park.seed_module import seed_guidelines
+from central_park.agent import run, run_interview
+from central_park.seed_module import seed_guidelines, seed_questionnaire
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
@@ -28,6 +28,10 @@ async def lifespan(app: FastAPI):
         seed_guidelines()
     except Exception:
         logging.getLogger("central_park.startup").exception("seed_guidelines failed (non-fatal)")
+    try:
+        seed_questionnaire()
+    except Exception:
+        logging.getLogger("central_park.startup").exception("seed_questionnaire failed (non-fatal)")
     yield
 
 
@@ -47,6 +51,21 @@ class RunResponse(BaseModel):
     communication_id: str | None
 
 
+class InterviewRequest(BaseModel):
+    patient_id: str
+    questionnaire_response_id: str
+
+
+class HandoffResponse(BaseModel):
+    triage_level: str | None
+    chief_complaint: str | None
+    hpi: str | None
+    red_flags: list[str]
+    recommended_actions: list[str]
+    citations: list[dict]
+    questionnaire_response_id: str | None
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "central-park-agent"}
@@ -58,4 +77,12 @@ def run_agent(req: RunRequest) -> dict:
         patient_id=req.patient_id,
         message=req.message,
         conversation_id=req.conversation_id,
+    )
+
+
+@app.post("/interview", response_model=HandoffResponse)
+def run_interview_endpoint(req: InterviewRequest) -> dict:
+    return run_interview(
+        patient_id=req.patient_id,
+        questionnaire_response_id=req.questionnaire_response_id,
     )
