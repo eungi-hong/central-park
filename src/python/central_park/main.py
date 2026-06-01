@@ -64,6 +64,9 @@ class HandoffResponse(BaseModel):
     recommended_actions: list[str]
     citations: list[dict]
     questionnaire_response_id: str | None
+    encounter_id: str | None = None
+    service_request_id: str | None = None
+    observation_ids: list[str] = []
 
 
 @app.get("/health")

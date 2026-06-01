@@ -43,11 +43,9 @@ class OpenAIProvider:
         return resp.choices[0].message.content or ""
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        # text-embedding-3-small is natively 1536-dim; request 768 so the
-        # vectors are dimension-compatible with the Ollama default and the
-        # IRIS Guideline.Embedding column.
+        # IRIS Guideline.Embedding is VECTOR(float, 1536) — match that dimension.
         resp = self._client.embeddings.create(
-            model=_OPENAI_EMBED_MODEL, input=texts, dimensions=768
+            model=_OPENAI_EMBED_MODEL, input=texts, dimensions=1536
         )
         return [d.embedding for d in resp.data]
 

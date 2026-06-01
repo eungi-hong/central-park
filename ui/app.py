@@ -234,9 +234,19 @@ if st.session_state.phase == "complete" and st.session_state.handoff:
             with st.expander(title):
                 st.write(c.get("snippet") or "_No excerpt available._")
 
+    fhir_ids = []
     if st.session_state.qr_id:
+        fhir_ids.append(f"QuestionnaireResponse `{st.session_state.qr_id}`")
+    if h.get("encounter_id"):
+        fhir_ids.append(f"Encounter `{h['encounter_id']}`")
+    if h.get("service_request_id"):
+        fhir_ids.append(f"ServiceRequest `{h['service_request_id']}`")
+    obs = h.get("observation_ids") or []
+    if obs:
+        fhir_ids.append(f"{len(obs)} Observation{'s' if len(obs) != 1 else ''}")
+    if fhir_ids:
         st.divider()
-        st.caption(f"FHIR QuestionnaireResponse · id `{st.session_state.qr_id}`")
+        st.caption("FHIR resources created · " + " · ".join(fhir_ids))
 
     st.divider()
     if st.button("New assessment", use_container_width=True):

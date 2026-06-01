@@ -13,14 +13,35 @@ cares about display strings, codes, and dates.
 
 from __future__ import annotations
 
+import logging
+import re
 from datetime import datetime, timezone
 from typing import TypedDict
 
 import httpx
 
+_log = logging.getLogger("central_park.fhir")
+
 from central_park.config import load
 
 QUESTIONNAIRE_REF = "Questionnaire/triage-intake"
+
+_SYMPTOM_CODES: dict[str, tuple[str, str]] = {
+    "shortness of breath": ("267036007", "Dyspnea"),
+    "chest tightness":     ("23924001",  "Chest tightness"),
+    "chest pain":          ("29857009",  "Chest pain"),
+    "fever":               ("386661006", "Fever"),
+    "nausea":              ("422587007", "Nausea"),
+    "dizziness":           ("404640003", "Dizziness"),
+    "weakness":            ("299377003", "Unilateral weakness"),
+}
+
+_TRIAGE_LEVEL_SR = {
+    "self-care":   ("routine", "243958005", "Self-care"),
+    "see-gp":      ("routine", "306206005", "Referral to general practitioner"),
+    "urgent-care": ("urgent",  "310861008", "Referral to urgent care clinic"),
+    "ed":          ("stat",    "182813001", "Emergency hospital admission"),
+}
 
 
 class PatientContext(TypedDict):
@@ -133,6 +154,27 @@ def _trim_allergy(r: dict) -> dict:
     }
 
 
+def _extract_id(resp: httpx.Response, resource_type: str) -> str:
+    """Extract the server-assigned id from a FHIR create response.
+
+    IRIS returns HTTP 201 with an empty body; the id lives in Location header.
+    """
+    new_id = ""
+    if resp.content:
+        try:
+            new_id = resp.json().get("id", "")
+        except ValueError:
+            pass
+    if not new_id:
+        location = resp.headers.get("Location") or resp.headers.get("Content-Location") or ""
+        parts = [p for p in location.split("/") if p]
+        if resource_type in parts:
+            idx = parts.index(resource_type)
+            if idx + 1 < len(parts):
+                new_id = parts[idx + 1]
+    return new_id
+
+
 def post_questionnaire_response(patient_id: str, qa_items: list[dict]) -> str:
     """POST a QuestionnaireResponse to FHIR and return the server-assigned id.
 
@@ -161,20 +203,7 @@ def post_questionnaire_response(patient_id: str, qa_items: list[dict]) -> str:
             headers={"Content-Type": "application/fhir+json"},
         )
         resp.raise_for_status()
-    new_id = ""
-    if resp.content:
-        try:
-            new_id = resp.json().get("id", "")
-        except ValueError:
-            pass
-    if not new_id:
-        location = resp.headers.get("Location") or resp.headers.get("Content-Location") or ""
-        parts = [p for p in location.split("/") if p]
-        if "QuestionnaireResponse" in parts:
-            idx = parts.index("QuestionnaireResponse")
-            if idx + 1 < len(parts):
-                new_id = parts[idx + 1]
-    return new_id
+    return _extract_id(resp, "QuestionnaireResponse")
 
 
 def get_questionnaire_response(qr_id: str) -> list[dict]:
@@ -191,6 +220,172 @@ def get_questionnaire_response(qr_id: str) -> list[dict]:
             "answer": answers[0].get("valueString", "") if answers else "",
         })
     return items
+
+
+def create_encounter(patient_id: str, qr_id: str | None = None) -> str:
+    """Create a finished virtual triage Encounter and return its id."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload: dict = {
+        "resourceType": "Encounter",
+        "status": "finished",
+        "class": {
+            "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+            "code": "VR",
+            "display": "virtual",
+        },
+        "type": [
+            {
+                "coding": [
+                    {
+                        "system": "http://snomed.info/sct",
+                        "code": "11429006",
+                        "display": "Consultation",
+                    }
+                ],
+                "text": "Triage consultation",
+            }
+        ],
+        "subject": {"reference": f"Patient/{patient_id}"},
+        "period": {"start": now, "end": now},
+    }
+    # IRIS restricts reasonReference to Condition/Procedure/Observation/ImmunizationRecommendation
+    # so we link the QR via reasonCode text instead
+    if qr_id:
+        payload["reasonCode"] = [{"text": f"Triage intake QuestionnaireResponse/{qr_id}"}]
+    with _client() as c:
+        resp = c.post("/Encounter", json=payload, headers={"Content-Type": "application/fhir+json"})
+        resp.raise_for_status()
+    return _extract_id(resp, "Encounter")
+
+
+def create_service_request(
+    patient_id: str,
+    encounter_id: str,
+    triage_level: str,
+    chief_complaint: str,
+) -> str:
+    """Create a ServiceRequest from triage outcome and return its id."""
+    priority, code, display = _TRIAGE_LEVEL_SR.get(
+        triage_level, ("routine", "306206005", "Referral to general practitioner")
+    )
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload = {
+        "resourceType": "ServiceRequest",
+        "status": "active",
+        "intent": "proposal",
+        "priority": priority,
+        "code": {
+            "coding": [
+                {"system": "http://snomed.info/sct", "code": code, "display": display}
+            ],
+            "text": display,
+        },
+        "subject": {"reference": f"Patient/{patient_id}"},
+        "encounter": {"reference": f"Encounter/{encounter_id}"},
+        "authoredOn": now,
+        "reasonCode": [{"text": chief_complaint}],
+    }
+    with _client() as c:
+        resp = c.post(
+            "/ServiceRequest", json=payload, headers={"Content-Type": "application/fhir+json"}
+        )
+        resp.raise_for_status()
+    return _extract_id(resp, "ServiceRequest")
+
+
+def create_observations(
+    patient_id: str,
+    encounter_id: str,
+    qa_items: list[dict],
+) -> list[str]:
+    """Create coded Observations from interview answers and return their ids.
+
+    Creates a severity-score Observation (LOINC 72514-3) and one SNOMED-coded
+    Observation per symptom keyword detected in the patient's answers.
+    """
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    base = {
+        "category": [
+            {
+                "coding": [
+                    {
+                        "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                        "code": "survey",
+                        "display": "Survey",
+                    }
+                ]
+            }
+        ],
+        "subject": {"reference": f"Patient/{patient_id}"},
+        "encounter": {"reference": f"Encounter/{encounter_id}"},
+        "effectiveDateTime": now,
+    }
+
+    by_link = {item["link_id"]: item["answer"] for item in qa_items}
+    _log.info("create_observations: severity=%r symptoms=%r",
+              by_link.get("severity"), by_link.get("associated-symptoms"))
+    payloads = []
+
+    # Severity score → LOINC 72514-3
+    # Extract the first integer in the answer and clamp to [1, 10]
+    severity_text = by_link.get("severity", "")
+    m = re.search(r"\b(\d+)\b", severity_text)
+    if m:
+        score = min(10, max(1, int(m.group(1))))
+        payloads.append({
+            **base,
+            "resourceType": "Observation",
+            "status": "preliminary",
+            "code": {
+                "coding": [
+                    {
+                        "system": "http://loinc.org",
+                        "code": "72514-3",
+                        "display": "Pain severity - 0-10 verbal numeric rating [Score] - Reported",
+                    }
+                ],
+                "text": "Self-reported severity score",
+            },
+            "valueInteger": score,
+        })
+
+    # Symptom flags → SNOMED codes
+    symptom_text = (
+        by_link.get("associated-symptoms", "") + " " + by_link.get("chief-complaint", "")
+    ).lower()
+    for keyword, (code, display) in _SYMPTOM_CODES.items():
+        if keyword in symptom_text:
+            payloads.append({
+                **base,
+                "resourceType": "Observation",
+                "status": "preliminary",
+                "code": {
+                    "coding": [
+                        {"system": "http://snomed.info/sct", "code": code, "display": display}
+                    ],
+                    "text": display,
+                },
+                "valueBoolean": True,
+            })
+
+    ids: list[str] = []
+    with _client() as c:
+        for payload in payloads:
+            try:
+                resp = c.post(
+                    "/Observation",
+                    json=payload,
+                    headers={"Content-Type": "application/fhir+json"},
+                )
+                resp.raise_for_status()
+                ids.append(_extract_id(resp, "Observation"))
+            except Exception as exc:
+                _log.warning(
+                    "create_observation failed for %s: %s",
+                    payload.get("code", {}).get("text"),
+                    exc,
+                )
+    return ids
 
 
 def get_patient_context(patient_id: str) -> PatientContext:

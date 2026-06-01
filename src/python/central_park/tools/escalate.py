@@ -47,7 +47,7 @@ def create_alert(patient_id: str, level: str, summary: str) -> str:
             "text": f"Triage escalation: {level}",
         }],
         "subject": {"reference": f"Patient/{patient_id}"},
-        "sent": datetime.now(timezone.utc).isoformat(),
+        "sent": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "topic": {"text": f"Central Park triage: {level}"},
         "payload": [{"contentString": summary}],
     }

@@ -109,6 +109,14 @@ central-park-agent  (FastAPI, agent.run_interview)
       recommended_actions, citations) rendered in the UI
 ```
 
+After the handoff summary is returned, the agent also writes:
+
+- **`Encounter`** — a `finished` virtual consultation resource linking the patient and the session timestamp
+- **`ServiceRequest`** — a formal follow-up order with SNOMED code and priority derived from the triage level (`routine` for self-care/see-GP, `urgent` for urgent-care, `stat` for ED) referencing the Encounter
+- **`Observation`s** — one LOINC-coded severity-score observation (`72514-3`) from the patient's numeric answer, plus one SNOMED-coded observation per symptom keyword detected in the answers (dyspnea, chest tightness, chest pain, fever, nausea, dizziness, unilateral weakness)
+
+All created resource IDs are returned to the UI and displayed in the handoff footer.
+
 The `Questionnaire/triage-intake` definition is seeded into FHIR by the agent at startup (`seed_module.seed_questionnaire`, idempotent PUT). The `/run` triage path above and this `/interview` path share the same FHIR fan-out and vector search; they differ only in input shape and prompt.
 
 ### Why IRIS embeds, not the sidecar
@@ -128,7 +136,7 @@ We tried. The image's ARM64 build of Embedded Python has multiple instabilities:
 
 ## Contest bonus categories hit
 
-- **FHIR integration**: native IRIS for Health FHIR R4 endpoint; the agent reads patient context, seeds a `Questionnaire`, and writes `QuestionnaireResponse` and `Communication` resources
+- **FHIR integration**: native IRIS for Health FHIR R4 endpoint; the agent reads patient context, seeds a `Questionnaire`, and writes `QuestionnaireResponse`, `Encounter`, `ServiceRequest`, coded `Observation`s, and `Communication` resources
 - **Digital Health Interoperability**: production graph with REST Inbox business service, Triage Agent business operation, HTTP outbound adapter, Ens alert raising
 - **AI Hub**: `%Embedding.Config` + `%Embedding.OpenAI` used directly for guideline and query embedding; SSL config installed programmatically at boot
 - **Vector Search**: `VECTOR(float, 1536)` column on `CentralPark.Data.Guideline`, queried via `VECTOR_COSINE` (HNSW index deferred — DDL syntax wouldn't compile in this image)
@@ -228,10 +236,14 @@ curl -X POST http://localhost:52773/centralpark/triage \
 curl -u _SYSTEM:SYS -H "Accept: application/fhir+json" \
   "http://localhost:52773/csp/healthshare/centralpark/fhir/r4/Communication?subject=Patient/demo-patient-1"
 
-# 6. After running an interview in the UI, confirm the QuestionnaireResponse was saved
-curl -s -u _SYSTEM:SYS \
-  "http://localhost:52773/csp/healthshare/centralpark/fhir/r4/QuestionnaireResponse?patient=demo-patient-1" \
-  | python3 -m json.tool | grep -E '"id"|"valueString"|"linkId"|"authored"'
+# 6. After running an interview in the UI, confirm all four resource types were written
+for resource in QuestionnaireResponse Encounter ServiceRequest Observation; do
+  count=$(curl -s -u _SYSTEM:SYS \
+    "http://localhost:52773/csp/healthshare/centralpark/fhir/r4/$resource" \
+    -H "Accept: application/fhir+json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',0))")
+  echo "$resource: $count"
+done
+# Expected: each count ≥ 1 after at least one interview
 ```
 
 The full interview path is exercised through the UI at <http://localhost:8501>. Management portal at <http://localhost:52773/csp/sys/UtilHome.csp> (`_SYSTEM` / `SYS`). The Embedding configuration is under System Administration → Configuration → Connectivity → Embedding Configurations; Visual Trace shows every triage call as an Ens message.
@@ -249,14 +261,15 @@ The full interview path is exercised through the UI at <http://localhost:8501>. 
 
 ## Data persistence
 
-FHIR data (patient records, `QuestionnaireResponse`s, `Communication`s) lives in IRIS's global storage inside the container and is not mounted to a host volume. It survives `docker compose stop` / `start` but is lost on `docker compose down`. Add a named volume for `/usr/irissys/mgr/centralpark` in `docker-compose.yml` to persist across rebuilds.
+FHIR data (patient records, `QuestionnaireResponse`s, `Communication`s, `Encounter`s, `ServiceRequest`s, `Observation`s) lives in the `iris-data` named Docker volume mounted at `/usr/irissys/mgr`. It survives both `docker compose stop` / `start` and `docker compose down` / `up`. To wipe all data and start fresh, run `docker compose down -v`.
 
 ## Roadmap
 
 - **Iteration 1**: project scaffold, sidecar architecture, IRIS boot path
 - **Iteration 2**: real FHIR retrieval, seed patient bundle, IRIS-native vector search, triage corpus, escalation path, Ollama bundle (later moved to optional)
 - **Iteration 3**: AI Hub native embedding via `%Embedding.OpenAI`; SSL + Embedding config installed programmatically at boot; simplified Python tools (send text, IRIS embeds); OpenAI default with Ollama optional via profile
-- **Iteration 4 (current)**: Streamlit intake interview UI; FHIR `Questionnaire` / `QuestionnaireResponse`; agent `/interview` endpoint returning a clinician handoff summary
+- **Iteration 4**: Streamlit intake interview UI; FHIR `Questionnaire` / `QuestionnaireResponse`; agent `/interview` endpoint returning a clinician handoff summary
+- **Iteration 5 (current)**: `Encounter` and `ServiceRequest` written after every interview; coded `Observation`s from interview answers (LOINC severity score, SNOMED symptom flags); IRIS data persistence via named Docker volume; bug fixes (LLM JSON fence stripping, `isoformat()` → `strftime`, embedding dimensions)
 - **Next**: demo video, OpenExchange listing prep, HNSW vector index for the guideline corpus
 
 ## License
