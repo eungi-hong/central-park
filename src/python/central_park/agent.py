@@ -25,13 +25,24 @@ single-shot version turns out to be too brittle on edge cases.
 from __future__ import annotations
 
 import json
+import logging
 import pathlib
 from typing import Literal, TypedDict
+
+_log = logging.getLogger("central_park.agent")
 
 from langgraph.graph import StateGraph, START, END
 
 from central_park.llm import get_provider
-from central_park.tools import create_alert, get_patient_context, get_questionnaire_response, search_guidelines
+from central_park.tools import (
+    create_alert,
+    create_encounter,
+    create_observations,
+    create_service_request,
+    get_patient_context,
+    get_questionnaire_response,
+    search_guidelines,
+)
 
 _PROMPT_PATH = pathlib.Path(__file__).parent / "prompts" / "triage.txt"
 _SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
@@ -81,7 +92,11 @@ def _reason(state: TriageState) -> dict:
         system=_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_payload}],
     )
-    parsed = json.loads(raw)
+    try:
+        parsed = json.loads(raw.strip().removeprefix("```json").removesuffix("```").strip())
+    except json.JSONDecodeError:
+        _log.warning("_reason: LLM returned non-JSON: %r", raw[:200])
+        parsed = {}
     return {
         "level": parsed.get("level", "see-gp"),
         "summary": parsed.get("summary", ""),
@@ -160,15 +175,47 @@ def run_interview(patient_id: str, questionnaire_response_id: str) -> dict:
         system=_HANDOFF_PROMPT,
         messages=[{"role": "user", "content": user_payload}],
     )
-    parsed = json.loads(raw)
+    try:
+        parsed = json.loads(raw.strip().removeprefix("```json").removesuffix("```").strip())
+    except json.JSONDecodeError:
+        _log.warning("run_interview: LLM returned non-JSON: %r", raw[:200])
+        parsed = {}
+    triage_level = parsed.get("triage_level", "see-gp")
+    chief_complaint = parsed.get("chief_complaint", "")
+
+    encounter_id = ""
+    service_request_id = ""
+    try:
+        encounter_id = create_encounter(patient_id, qr_id=questionnaire_response_id)
+    except Exception as exc:
+        body = getattr(getattr(exc, "response", None), "text", "")
+        _log.warning("create_encounter failed: %s | body: %s", exc, body)
+    observation_ids: list[str] = []
+    try:
+        if encounter_id:
+            service_request_id = create_service_request(
+                patient_id, encounter_id, triage_level, chief_complaint
+            )
+    except Exception as exc:
+        body = getattr(getattr(exc, "response", None), "text", "")
+        _log.warning("create_service_request failed: %s | body: %s", exc, body)
+    try:
+        if encounter_id:
+            observation_ids = create_observations(patient_id, encounter_id, qa_transcript)
+    except Exception as exc:
+        _log.warning("create_observations failed: %s", exc)
+
     return {
-        "triage_level": parsed.get("triage_level", "see-gp"),
-        "chief_complaint": parsed.get("chief_complaint", ""),
+        "triage_level": triage_level,
+        "chief_complaint": chief_complaint,
         "hpi": parsed.get("hpi", ""),
         "red_flags": parsed.get("red_flags", []),
         "recommended_actions": parsed.get("recommended_actions", []),
         "citations": parsed.get("citations", []),
         "questionnaire_response_id": questionnaire_response_id,
+        "encounter_id": encounter_id,
+        "service_request_id": service_request_id,
+        "observation_ids": observation_ids,
     }
 
 

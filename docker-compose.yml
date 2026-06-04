@@ -19,6 +19,8 @@ services:
       - ./src/cls:/home/irisowner/central-park/src/cls
       - ./iris-config:/home/irisowner/central-park/iris-config
       - ./web:/home/irisowner/central-park/web
+      # Persist FHIR data and IRIS globals across docker compose down/up cycles.
+      - iris-data:/usr/irissys/mgr
 
   agent:
     build:
@@ -100,4 +102,5 @@ services:
     restart: "no"
 
 volumes:
+  iris-data:
   ollama-models:
