@@ -52,8 +52,10 @@ services:
     build:
       context: ./ui
     container_name: central-park-ui
+    # nginx serves the built SPA on :80 and reverse-proxies /api -> agent and
+    # /fhir -> IRIS (injecting Basic auth) so the browser stays same-origin.
     ports:
-      - "8501:8501"
+      - "8501:80"
     environment:
       CP_AGENT_BASE_URL: ${CP_AGENT_BASE_URL:-http://agent:8000}
       CP_FHIR_BASE_URL: ${CP_FHIR_BASE_URL:-http://iris:52773/csp/healthshare/centralpark/fhir/r4}
@@ -61,6 +63,8 @@ services:
       CP_FHIR_PASSWORD: ${CP_FHIR_PASSWORD:-SYS}
     depends_on:
       iris:
+        condition: service_started
+      agent:
         condition: service_started
 
   # --- Optional services -----------------------------------------------------

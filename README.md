@@ -14,7 +14,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Three services boot: IRIS for Health (~90 s cold start), the Python agent sidecar, and the Streamlit UI. Once the IRIS logs show `Production started`, restart the agent so it seeds the triage `Questionnaire` into FHIR against a ready IRIS:
+Three services boot: IRIS for Health (~90 s cold start), the Python agent sidecar, and the web UI (a React SPA served by nginx). Once the IRIS logs show `Production started`, restart the agent so it seeds the triage `Questionnaire` into FHIR against a ready IRIS:
 
 ```bash
 docker compose restart agent
@@ -38,7 +38,7 @@ Expected: structured JSON with `level`, `summary`, `citations` from the seeded t
 ```
 patient browser
       │
-      ├─ central-park-ui (Streamlit, :8501): structured interview path — see below
+      ├─ central-park-ui (React SPA + nginx, :8501): structured interview path — see below
       │
       │  POST /centralpark/triage  { patient_id, message }   (direct API path)
       ▼
@@ -85,17 +85,18 @@ patient browser
                                                   (gpt-4o-mini by default)
 ```
 
-Three services (IRIS, the agent sidecar, and the Streamlit UI), one external dependency (OpenAI). The agent never embeds in Python; it sends raw text to IRIS, which embeds via `%Embedding.OpenAI` server-side. This is the contest's recommended pattern for AI Hub usage.
+Three services (IRIS, the agent sidecar, and the web UI — a React SPA served by nginx), one external dependency (OpenAI). The agent never embeds in Python; it sends raw text to IRIS, which embeds via `%Embedding.OpenAI` server-side. This is the contest's recommended pattern for AI Hub usage.
 
 ### Structured interview path
 
 The UI walks the patient through a 6-question intake interview (chief complaint, onset, severity, associated symptoms, history, self-treatment), posts the answers to FHIR as a `QuestionnaireResponse` linked to the `Questionnaire/triage-intake` definition, then asks the agent for a clinician handoff summary grounded on the patient's FHIR record.
 
 ```
-central-park-ui  (Streamlit, :8501)
+central-park-ui  (React SPA + nginx, :8501)
       │
-      │  1. 6 structured questions answered in chat
-      │  2. POST QuestionnaireResponse → FHIR R4  (UI posts directly)
+      │  1. 6 structured questions answered one at a time
+      │  2. POST QuestionnaireResponse → FHIR R4  (via nginx /fhir proxy;
+      │         Basic auth injected server-side, so the browser stays same-origin)
       │         /csp/healthshare/centralpark/fhir/r4/QuestionnaireResponse
       │  3. POST /interview { patient_id, questionnaire_response_id }
       ▼
@@ -187,7 +188,7 @@ central-park/
 ├── Dockerfile                   IRIS for Health image
 ├── agent/Dockerfile             Python sidecar image
 ├── module.xml                   IPM manifest
-├── ui/                          Streamlit interview UI (app.py, Dockerfile, requirements.txt)
+├── ui/                          React SPA interview UI (Vite + Tailwind + shadcn; nginx Dockerfile)
 ├── iris-config/
 │   ├── iris.script              boot-time setup (namespace, FHIR, REST, SSL, embedding config)
 │   └── seed/

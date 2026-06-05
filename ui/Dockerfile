@@ -1,15 +1,25 @@
-FROM python:3.12-slim
+# --- Build stage -----------------------------------------------------------
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install deps first for better layer caching.
+COPY package.json package-lock.json* ./
+RUN npm ci || npm install
 
-COPY app.py .
+COPY . .
+RUN npm run build
 
-EXPOSE 8501
+# --- Serve stage -----------------------------------------------------------
+FROM nginx:1.27-alpine
 
-CMD ["streamlit", "run", "app.py", \
-     "--server.port=8501", \
-     "--server.address=0.0.0.0", \
-     "--server.headless=true"]
+# nginx:alpine ships envsubst (gettext) and a stock default.conf we replace.
+RUN rm -f /etc/nginx/conf.d/default.conf
+
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf.template /etc/nginx/templates/nginx.conf.template
+COPY docker-entrypoint.sh /usr/local/bin/cp-entrypoint.sh
+RUN chmod +x /usr/local/bin/cp-entrypoint.sh
+
+EXPOSE 80
+ENTRYPOINT ["/usr/local/bin/cp-entrypoint.sh"]

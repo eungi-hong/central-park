@@ -1,0 +1,36 @@
+# Rendered by docker-entrypoint.sh (envsubst) at container start. Only the
+# tokens below are substituted; nginx's own $-variables are preserved.
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Triage agent (FastAPI). Trailing slash strips the /api prefix:
+    #   /api/interview -> ${CP_AGENT_BASE_URL}/interview
+    location /api/ {
+        proxy_pass ${CP_AGENT_BASE_URL}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        # The agent makes an LLM call; allow well past nginx's 60s default.
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+    }
+
+    # IRIS FHIR R4 endpoint. Basic auth is injected here so credentials never
+    # reach the browser. Trailing slash strips the /fhir prefix:
+    #   /fhir/QuestionnaireResponse -> ${CP_FHIR_BASE_URL}/QuestionnaireResponse
+    location /fhir/ {
+        proxy_pass ${CP_FHIR_BASE_URL}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Authorization "Basic ${FHIR_B64}";
+    }
+
+    # SPA fallback for client-side routing / refresh.
+    location / {
+        try_files $uri /index.html;
+    }
+}
