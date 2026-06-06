@@ -29,3 +29,17 @@ export interface QA {
   question: string;
   answer: string;
 }
+
+// One row in the triage queue dashboard, derived from a FHIR ServiceRequest
+// (each triage interview writes one) plus its linked Patient.
+export interface TriageQueueItem {
+  service_request_id: string;
+  encounter_id: string | null;
+  patient_id: string;
+  patient_name: string;
+  triage_level: TriageLevel | string;
+  chief_complaint: string;
+  referral: string;
+  authored_on: string | null;
+  escalated: boolean;
+}

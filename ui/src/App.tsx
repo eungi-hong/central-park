@@ -1,17 +1,21 @@
 import { useState } from "react";
-import { Activity } from "lucide-react";
+import { Activity, LayoutList, MessageSquare } from "lucide-react";
 import { SetupScreen } from "@/components/SetupScreen";
 import { InterviewScreen } from "@/components/InterviewScreen";
 import { ProcessingScreen } from "@/components/ProcessingScreen";
 import { HandoffScreen } from "@/components/HandoffScreen";
+import { DashboardScreen } from "@/components/DashboardScreen";
+import { cn } from "@/lib/utils";
 import { QUESTIONS } from "@/data/questions";
 import { createQuestionnaireResponse, runInterview, ApiError } from "@/api";
 import type { Handoff, QA } from "@/types";
 
 type Phase = "setup" | "interview" | "processing" | "complete";
+type View = "triage" | "queue";
 export type ProcessStep = "fhir" | "agent";
 
 export default function App() {
+  const [view, setView] = useState<View>("triage");
   const [phase, setPhase] = useState<Phase>("setup");
   const [patientId, setPatientId] = useState("demo-patient-1");
   const [answers, setAnswers] = useState<QA[]>([]);
@@ -66,13 +70,44 @@ export default function App() {
           </span>
           <span className="text-[15px] font-semibold tracking-tight">Central Park</span>
           <span className="text-sm text-muted-foreground">· Triage</span>
+
+          <nav className="ml-auto flex items-center gap-1 rounded-lg bg-secondary p-0.5 text-sm">
+            <button
+              onClick={() => setView("triage")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors",
+                view === "triage"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              Interview
+            </button>
+            <button
+              onClick={() => setView("queue")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors",
+                view === "queue"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <LayoutList className="h-3.5 w-3.5" />
+              Queue
+            </button>
+          </nav>
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-6 py-10">
-        {phase === "setup" && <SetupScreen onStart={startInterview} initialId={patientId} />}
+        {view === "queue" && <DashboardScreen />}
 
-        {phase === "interview" && (
+        {view === "triage" && phase === "setup" && (
+          <SetupScreen onStart={startInterview} initialId={patientId} />
+        )}
+
+        {view === "triage" && phase === "interview" && (
           <InterviewScreen
             questions={QUESTIONS}
             onComplete={submitInterview}
@@ -80,11 +115,11 @@ export default function App() {
           />
         )}
 
-        {phase === "processing" && (
+        {view === "triage" && phase === "processing" && (
           <ProcessingScreen step={step} error={error} onRetry={() => submitInterview(answers)} onCancel={reset} />
         )}
 
-        {phase === "complete" && handoff && (
+        {view === "triage" && phase === "complete" && handoff && (
           <HandoffScreen handoff={handoff} qrId={qrId} patientId={patientId} onReset={reset} />
         )}
       </main>
