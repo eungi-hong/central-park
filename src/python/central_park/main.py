@@ -48,7 +48,11 @@ class RunResponse(BaseModel):
     level: str | None
     summary: str | None
     citations: list[dict]
+    red_flags: list[str] = []
     communication_id: str | None
+    encounter_id: str | None = None
+    service_request_id: str | None = None
+    observation_ids: list[str] = []
 
 
 class InterviewRequest(BaseModel):
