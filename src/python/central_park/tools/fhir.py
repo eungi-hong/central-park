@@ -258,13 +258,47 @@ def create_encounter(patient_id: str, qr_id: str | None = None) -> str:
     return _extract_id(resp, "Encounter")
 
 
+def _handoff_notes(handoff: dict) -> list[dict]:
+    """Flatten the agent's narrative into ServiceRequest.note annotations.
+
+    Each note is human-readable in the Management Portal and carries a stable
+    label prefix the clinician dashboard parses back out (see ui/src/api.ts).
+    The narrative is otherwise not persisted anywhere in FHIR, so a clinician
+    reviewing a past case would lose the reasoning without this.
+    """
+    notes: list[dict] = []
+    if hpi := handoff.get("hpi"):
+        notes.append({"text": f"HPI: {hpi}"})
+    for action in handoff.get("recommended_actions") or []:
+        notes.append({"text": f"Action: {action}"})
+    for flag in handoff.get("red_flags") or []:
+        notes.append({"text": f"Red flag: {flag}"})
+    for c in handoff.get("citations") or []:
+        score = c.get("score")
+        score_s = f"{score:.4f}" if isinstance(score, (int, float)) else ""
+        source = c.get("source") or c.get("slug") or ""
+        snippet = c.get("snippet") or ""
+        # score|source|snippet — score/source are single-token, snippet is last.
+        notes.append({"text": f"Guideline: {score_s}|{source}|{snippet}"})
+    if qr_id := handoff.get("qr_id"):
+        notes.append({"text": f"QR: {qr_id}"})
+    return notes
+
+
 def create_service_request(
     patient_id: str,
     encounter_id: str,
     triage_level: str,
     chief_complaint: str,
+    handoff: dict | None = None,
 ) -> str:
-    """Create a ServiceRequest from triage outcome and return its id."""
+    """Create a ServiceRequest from triage outcome and return its id.
+
+    When `handoff` is supplied, the agent's narrative (HPI, recommended
+    actions, red flags, cited guidelines, source QuestionnaireResponse id) is
+    persisted as note annotations so the clinician dashboard can reconstruct
+    the full case later without re-running the LLM.
+    """
     priority, code, display = _TRIAGE_LEVEL_SR.get(
         triage_level, ("routine", "306206005", "Referral to general practitioner")
     )
@@ -285,6 +319,8 @@ def create_service_request(
         "authoredOn": now,
         "reasonCode": [{"text": chief_complaint}],
     }
+    if handoff and (notes := _handoff_notes(handoff)):
+        payload["note"] = notes
     with _client() as c:
         resp = c.post(
             "/ServiceRequest", json=payload, headers={"Content-Type": "application/fhir+json"}

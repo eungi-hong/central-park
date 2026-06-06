@@ -1,4 +1,13 @@
-import type { Handoff, QA, TriageLevel, TriageQueueItem } from "@/types";
+import type {
+  CaseOutcome,
+  Citation,
+  Handoff,
+  PatientRecord,
+  QA,
+  RecordEntry,
+  TriageLevel,
+  TriageQueueItem,
+} from "@/types";
 
 // Same-origin routes. nginx (prod) and the vite dev proxy both map:
 //   /fhir/*  -> IRIS FHIR R4 endpoint (with server-side Basic auth injected)
@@ -204,4 +213,209 @@ export async function fetchTriageQueue(): Promise<TriageQueueItem[]> {
 
   items.sort((a, b) => (b.authored_on ?? "").localeCompare(a.authored_on ?? ""));
   return items.slice(0, 25);
+}
+
+// --- case detail ------------------------------------------------------------
+
+async function fhirGet(path: string): Promise<Record<string, any>> {
+  let resp: Response;
+  try {
+    resp = await fetch(`${FHIR_BASE}${path}`, {
+      headers: { Accept: "application/fhir+json" },
+    });
+  } catch {
+    throw new ApiError("fhir-unreachable", "Cannot reach the FHIR server.");
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    throw new ApiError("fhir-http", "FHIR returned an error.", resp.status, detail);
+  }
+  return (await resp.json()) as Record<string, any>;
+}
+
+// Best-effort GET: a missing resource (e.g. a Patient never seeded) or an
+// unsupported search param must not sink the whole view. Mirrors the agent's
+// per-query is_success guards in get_patient_context.
+async function fhirGetSoft(path: string): Promise<Record<string, any>> {
+  try {
+    const resp = await fetch(`${FHIR_BASE}${path}`, {
+      headers: { Accept: "application/fhir+json" },
+    });
+    if (!resp.ok) return {};
+    return (await resp.json()) as Record<string, any>;
+  } catch {
+    return {};
+  }
+}
+
+function codingDisplay(c: Record<string, any> | undefined): string {
+  if (!c) return "";
+  if (c.text) return c.text as string;
+  for (const coding of (c.coding as Record<string, any>[]) ?? []) {
+    if (coding.display) return coding.display as string;
+  }
+  return "";
+}
+
+function ageFromBirthDate(birthDate: string | undefined): number | null {
+  if (!birthDate) return null;
+  const born = new Date(birthDate);
+  if (Number.isNaN(born.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - born.getFullYear();
+  const m = now.getMonth() - born.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < born.getDate())) age--;
+  return age;
+}
+
+function bundleResources(bundle: Record<string, any>): Record<string, any>[] {
+  return ((bundle.entry as { resource?: Record<string, any> }[]) ?? [])
+    .map((e) => e.resource)
+    .filter(Boolean) as Record<string, any>[];
+}
+
+function observationValue(o: Record<string, any>): string {
+  if (o.valueQuantity) {
+    const { value, unit } = o.valueQuantity;
+    return `${value ?? ""} ${unit ?? ""}`.trim();
+  }
+  if (o.component) {
+    return (o.component as Record<string, any>[])
+      .map((c) => {
+        const vq = c.valueQuantity ?? {};
+        return `${codingDisplay(c.code)} ${vq.value ?? ""} ${vq.unit ?? ""}`.trim();
+      })
+      .filter(Boolean)
+      .join(", ");
+  }
+  if (o.valueInteger !== undefined) return String(o.valueInteger);
+  if (o.valueString) return o.valueString as string;
+  return "";
+}
+
+function isSurvey(o: Record<string, any>): boolean {
+  for (const cat of (o.category as Record<string, any>[]) ?? []) {
+    for (const coding of (cat.coding as Record<string, any>[]) ?? []) {
+      if (coding.code === "survey") return true;
+    }
+  }
+  return false;
+}
+
+// The patient's standing clinical record — one FHIR fan-out mirroring the
+// agent's get_patient_context, shaped for display. Survey-category Observations
+// (this triage's own severity/symptom flags) are excluded so the record shows
+// only the patient's baseline clinical picture.
+export async function fetchPatientRecord(patientId: string): Promise<PatientRecord> {
+  const [patient, conditions, meds, obs, allergies] = await Promise.all([
+    fhirGetSoft(`/Patient/${patientId}`),
+    fhirGetSoft(`/Condition?patient=${patientId}&clinical-status=active`),
+    fhirGetSoft(`/MedicationRequest?patient=${patientId}&status=active`),
+    fhirGetSoft(`/Observation?patient=${patientId}&_sort=-date&_count=20`),
+    fhirGetSoft(`/AllergyIntolerance?patient=${patientId}`),
+  ]);
+
+  const vitals: RecordEntry[] = bundleResources(obs)
+    .filter((o) => !isSurvey(o))
+    .map((o) => ({ display: codingDisplay(o.code), detail: observationValue(o) }))
+    .filter((v) => v.display);
+
+  // De-duplicate vitals by display, keeping the most recent (already -date sorted).
+  const seen = new Set<string>();
+  const dedupedVitals = vitals.filter((v) => {
+    if (seen.has(v.display)) return false;
+    seen.add(v.display);
+    return true;
+  });
+
+  return {
+    id: patientId,
+    name: patientName(patient),
+    age: ageFromBirthDate(patient.birthDate as string | undefined),
+    gender: (patient.gender as string) ?? null,
+    conditions: bundleResources(conditions)
+      .map((c) => ({ display: codingDisplay(c.code) }))
+      .filter((c) => c.display),
+    medications: bundleResources(meds)
+      .map((m) => ({
+        display: codingDisplay(m.medicationCodeableConcept),
+        detail: ((m.dosageInstruction as Record<string, any>[]) ?? [{}])[0]?.text,
+      }))
+      .filter((m) => m.display),
+    vitals: dedupedVitals.slice(0, 6),
+    allergies: bundleResources(allergies)
+      .map((a) => ({
+        display: codingDisplay(a.code),
+        detail: [a.criticality, ...((a.reaction as Record<string, any>[]) ?? [])
+          .flatMap((r) => (r.manifestation as Record<string, any>[]) ?? [])
+          .map((mn) => codingDisplay(mn))]
+          .filter(Boolean)
+          .join(" · "),
+      }))
+      .filter((a) => a.display),
+  };
+}
+
+export async function fetchTranscript(qrId: string): Promise<QA[]> {
+  const qr = await fhirGet(`/QuestionnaireResponse/${qrId}`);
+  return ((qr.item as Record<string, any>[]) ?? []).map((item) => {
+    const answers = (item.answer as Record<string, any>[]) ?? [];
+    return {
+      link_id: (item.linkId as string) ?? "",
+      question: (item.text as string) ?? "",
+      answer: answers[0]?.valueString ?? "",
+    };
+  });
+}
+
+// Reconstruct the triage outcome from a single ServiceRequest, parsing the
+// agent's narrative back out of the note annotations
+// (tools/fhir.py:_handoff_notes).
+function parseHandoffNotes(notes: Record<string, any>[]): {
+  hpi: string;
+  recommended_actions: string[];
+  red_flags: string[];
+  citations: Citation[];
+  qr_id: string | null;
+} {
+  let hpi = "";
+  let qr_id: string | null = null;
+  const recommended_actions: string[] = [];
+  const red_flags: string[] = [];
+  const citations: Citation[] = [];
+
+  for (const note of notes) {
+    const text = (note.text as string) ?? "";
+    if (text.startsWith("HPI: ")) hpi = text.slice(5);
+    else if (text.startsWith("Action: ")) recommended_actions.push(text.slice(8));
+    else if (text.startsWith("Red flag: ")) red_flags.push(text.slice(10));
+    else if (text.startsWith("QR: ")) qr_id = text.slice(4);
+    else if (text.startsWith("Guideline: ")) {
+      const rest = text.slice(11);
+      const first = rest.indexOf("|");
+      const second = rest.indexOf("|", first + 1);
+      if (first >= 0 && second >= 0) {
+        const scoreStr = rest.slice(0, first);
+        const score = scoreStr ? Number(scoreStr) : undefined;
+        citations.push({
+          score: Number.isFinite(score) ? score : undefined,
+          source: rest.slice(first + 1, second),
+          snippet: rest.slice(second + 1),
+        });
+      }
+    }
+  }
+  return { hpi, recommended_actions, red_flags, citations, qr_id };
+}
+
+export async function fetchCaseOutcome(serviceRequestId: string): Promise<CaseOutcome> {
+  const sr = await fhirGet(`/ServiceRequest/${serviceRequestId}`);
+  const code = (sr.code?.coding?.[0]?.code as string) ?? "";
+  const parsed = parseHandoffNotes((sr.note as Record<string, any>[]) ?? []);
+  return {
+    triage_level: SR_CODE_TO_LEVEL[code] ?? "see-gp",
+    chief_complaint: (sr.reasonCode?.[0]?.text as string) ?? "",
+    authored_on: (sr.authoredOn as string) ?? null,
+    ...parsed,
+  };
 }

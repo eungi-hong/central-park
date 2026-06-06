@@ -257,6 +257,7 @@ def _persist_fhir(
     *,
     qr_id: str | None = None,
     qa_transcript: list[dict] | None = None,
+    handoff: dict | None = None,
 ) -> dict:
     """Write the Encounter -> ServiceRequest -> Observation cascade for one triage.
 
@@ -284,7 +285,7 @@ def _persist_fhir(
     if encounter_id:
         try:
             service_request_id = create_service_request(
-                patient_id, encounter_id, triage_level, chief_complaint
+                patient_id, encounter_id, triage_level, chief_complaint, handoff=handoff
             )
         except Exception as exc:
             body = getattr(getattr(exc, "response", None), "text", "")
@@ -348,21 +349,29 @@ def run_interview(patient_id: str, questionnaire_response_id: str) -> dict:
     triage_level = parsed.get("triage_level", "see-gp")
     chief_complaint = parsed.get("chief_complaint", "")
 
+    handoff = {
+        "hpi": parsed.get("hpi", ""),
+        "recommended_actions": parsed.get("recommended_actions", []),
+        "red_flags": parsed.get("red_flags", []),
+        "citations": parsed.get("citations", []),
+        "qr_id": questionnaire_response_id,
+    }
     fhir = _persist_fhir(
         patient_id,
         triage_level,
         chief_complaint,
         qr_id=questionnaire_response_id,
         qa_transcript=qa_transcript,
+        handoff=handoff,
     )
 
     return {
         "triage_level": triage_level,
         "chief_complaint": chief_complaint,
-        "hpi": parsed.get("hpi", ""),
-        "red_flags": parsed.get("red_flags", []),
-        "recommended_actions": parsed.get("recommended_actions", []),
-        "citations": parsed.get("citations", []),
+        "hpi": handoff["hpi"],
+        "red_flags": handoff["red_flags"],
+        "recommended_actions": handoff["recommended_actions"],
+        "citations": handoff["citations"],
         "questionnaire_response_id": questionnaire_response_id,
         "encounter_id": fhir["encounter_id"],
         "service_request_id": fhir["service_request_id"],
@@ -391,6 +400,11 @@ def run(patient_id: str, message: str, conversation_id: str | None = None) -> di
         patient_id,
         final.get("level") or "see-gp",
         chief_complaint=message,
+        handoff={
+            "hpi": final.get("summary", ""),
+            "red_flags": final.get("red_flags", []),
+            "citations": final.get("citations", []),
+        },
     )
 
     return {

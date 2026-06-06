@@ -30,7 +30,7 @@ export interface QA {
   answer: string;
 }
 
-// One row in the triage queue dashboard, derived from a FHIR ServiceRequest
+// One row in the clinician worklist, derived from a FHIR ServiceRequest
 // (each triage interview writes one) plus its linked Patient.
 export interface TriageQueueItem {
   service_request_id: string;
@@ -42,4 +42,36 @@ export interface TriageQueueItem {
   referral: string;
   authored_on: string | null;
   escalated: boolean;
+}
+
+// The patient's standing clinical record, read live from FHIR for the
+// case-detail view (Patient + active Conditions/Medications, recent
+// Observations, AllergyIntolerances). Mirrors the agent's get_patient_context.
+export interface RecordEntry {
+  display: string;
+  detail?: string;
+}
+export interface PatientRecord {
+  id: string;
+  name: string;
+  age: number | null;
+  gender: string | null;
+  conditions: RecordEntry[];
+  medications: RecordEntry[];
+  vitals: RecordEntry[];
+  allergies: RecordEntry[];
+}
+
+// The triage outcome reconstructed from a stored ServiceRequest — the agent's
+// narrative is parsed back out of the resource's note annotations (written by
+// tools/fhir.py:_handoff_notes), so a past case is fully reviewable.
+export interface CaseOutcome {
+  triage_level: TriageLevel | string;
+  chief_complaint: string;
+  hpi: string;
+  recommended_actions: string[];
+  red_flags: string[];
+  citations: Citation[];
+  qr_id: string | null;
+  authored_on: string | null;
 }

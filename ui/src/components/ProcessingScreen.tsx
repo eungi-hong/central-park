@@ -13,8 +13,8 @@ interface Props {
 }
 
 const STEPS: { key: ProcessStep; label: string }[] = [
-  { key: "fhir", label: "Saving interview to FHIR" },
-  { key: "agent", label: "Running the triage agent" },
+  { key: "fhir", label: "Saving your answers" },
+  { key: "agent", label: "Reviewing your answers" },
 ];
 
 export function ProcessingScreen({ step, error, onRetry, onCancel }: Props) {
@@ -25,7 +25,7 @@ export function ProcessingScreen({ step, error, onRetry, onCancel }: Props) {
       <Card>
         <CardContent className="space-y-5 p-8">
           <h2 className="text-lg font-semibold tracking-tight">
-            {error ? "Could not complete the assessment" : "Preparing the clinician handoff…"}
+            {error ? "Something went wrong" : "Submitting your answers…"}
           </h2>
 
           <ol className="space-y-3">
