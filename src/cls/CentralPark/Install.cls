@@ -138,11 +138,27 @@ ClassMethod SeedFHIR()
         write !,"FHIR seed already loaded, skipping."
         quit
     }
+    set base = "/home/irisowner/central-park/iris-config/seed/"
+    // demo-patient-1.json: the cardiac-risk demo patient (Marcus Reeves).
+    // demo-cases.json: three more patients with pre-built triage cases at
+    // varied levels so the clinician worklist shows a realistic mixed queue.
+    set ok = ..PostBundle(base_"demo-patient-1.json")
+    set ok = ..PostBundle(base_"demo-cases.json") && ok
+    if ok {
+        set ^CentralPark("seed", "demo-patient-1") = $zdatetime($horolog, 3)
+        write !,"(marked seeded)"
+    }
+}
+
+/// POST one FHIR transaction bundle to the local endpoint. Returns 1 on a
+/// 200/201 response, 0 otherwise. Bundles use PUT on stable ids, so re-posting
+/// is idempotent and a manual re-seed is safe.
+ClassMethod PostBundle(bundlePath As %String) As %Boolean
+{
     try {
-        set bundlePath = "/home/irisowner/central-park/iris-config/seed/demo-patient-1.json"
         if '##class(%File).Exists(bundlePath) {
             write !,"Seed bundle not found at ",bundlePath
-            quit
+            quit 0
         }
         set stream = ##class(%Stream.FileBinary).%New()
         do stream.LinkToFile(bundlePath)
@@ -157,16 +173,14 @@ ClassMethod SeedFHIR()
         set sc = req.Post(..#ENDPOINT)
         if 'sc {
             write !,"Seed POST failed: ",$system.Status.GetErrorText(sc)
-            quit
+            quit 0
         }
         set status = req.HttpResponse.StatusCode
-        write !,"Seed POST status=",status
-        if (status = 200) || (status = 201) {
-            set ^CentralPark("seed", "demo-patient-1") = $zdatetime($horolog, 3)
-            write !," (marked seeded)"
-        }
+        write !,"Seed POST ",bundlePath," status=",status
+        quit ((status = 200) || (status = 201))
     } catch ex {
         write !,"Seed error: ",ex.DisplayString()
+        quit 0
     }
 }
 
