@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowLeft, Loader2 } from "lucide-react";
-import { fetchCaseOutcome, fetchPatientRecord, fetchTranscript, ApiError } from "@/api";
+import { AlertTriangle, ArrowLeft, Check, Loader2, ShieldAlert } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  acknowledgeCase,
+  fetchCaseOutcome,
+  fetchPatientRecord,
+  fetchTranscript,
+  ApiError,
+} from "@/api";
 import { levelConfig } from "@/data/questions";
 import { cn } from "@/lib/utils";
 import type { CaseOutcome, PatientRecord, QA, RecordEntry, TriageQueueItem } from "@/types";
@@ -10,12 +17,28 @@ interface Props {
   onBack: () => void;
 }
 
+function formatTime(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export function CaseDetailScreen({ item, onBack }: Props) {
   const [record, setRecord] = useState<PatientRecord | null>(null);
   const [outcome, setOutcome] = useState<CaseOutcome | null>(null);
   const [transcript, setTranscript] = useState<QA[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
+
+  const [ackAt, setAckAt] = useState<string | null>(null);
+  const [acking, setAcking] = useState(false);
+  const [ackError, setAckError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,6 +53,7 @@ export function CaseDetailScreen({ item, onBack }: Props) {
         if (cancelled) return;
         setRecord(rec);
         setOutcome(out);
+        setAckAt(out.acknowledged_at);
         if (out.qr_id) {
           const t = await fetchTranscript(out.qr_id).catch(() => []);
           if (!cancelled) setTranscript(t);
@@ -47,8 +71,21 @@ export function CaseDetailScreen({ item, onBack }: Props) {
     };
   }, [item.patient_id, item.service_request_id]);
 
+  async function acknowledge() {
+    setAcking(true);
+    setAckError(null);
+    try {
+      setAckAt(await acknowledgeCase(item.service_request_id));
+    } catch (err) {
+      setAckError((err as ApiError).message ?? "Could not save the acknowledgement.");
+    } finally {
+      setAcking(false);
+    }
+  }
+
   const cfg = levelConfig(outcome?.triage_level ?? item.triage_level);
-  const demo = [record?.age != null ? `${record.age}` : null, record?.gender]
+  const escalated = item.escalated;
+  const meta = [record?.age != null ? `${record.age}y` : null, record?.gender]
     .filter(Boolean)
     .join(" · ");
 
@@ -61,15 +98,39 @@ export function CaseDetailScreen({ item, onBack }: Props) {
         <ArrowLeft className="h-4 w-4" /> Worklist
       </button>
 
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {record?.name || item.patient_name || item.patient_id}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {demo && <span>{demo}</span>}
-          {demo && "  ·  "}
-          <span className="font-mono text-xs">{item.patient_id}</span>
-        </p>
+      {/* Header: identity + disposition + acknowledge */}
+      <div className="flex gap-4 rounded-lg border p-5">
+        <div className={cn("w-1 shrink-0 rounded", cfg.accent)} />
+        <div className="flex flex-1 flex-wrap items-start justify-between gap-4">
+          <div className="space-y-0.5">
+            <h1 className="text-xl font-semibold tracking-tight">
+              {record?.name || item.patient_name || item.patient_id}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {meta && <span>{meta}  ·  </span>}
+              <span className="font-mono text-xs">{item.patient_id}</span>
+            </p>
+          </div>
+
+          <div className="flex flex-col items-end gap-1.5">
+            <p className={cn("text-sm font-semibold", cfg.text)}>{cfg.label}</p>
+            {escalated &&
+              (ackAt ? (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Check className="h-3.5 w-3.5 text-emerald-600" /> Acknowledged {formatTime(ackAt)}
+                </span>
+              ) : (
+                <Button size="sm" onClick={acknowledge} disabled={acking}>
+                  {acking ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ShieldAlert className="h-3.5 w-3.5" />
+                  )}
+                  Acknowledge
+                </Button>
+              ))}
+          </div>
+        </div>
       </div>
 
       {status === "loading" && (
@@ -88,22 +149,27 @@ export function CaseDetailScreen({ item, onBack }: Props) {
         <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
           {/* Clinical reasoning */}
           <div className="space-y-7">
-            {/* Disposition */}
-            <div className="flex gap-4">
-              <div className={cn("w-1 shrink-0 rounded", cfg.accent)} />
-              <div className="space-y-1">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Recommended disposition
-                </p>
-                <p className={cn("text-lg font-semibold", cfg.text)}>{cfg.label}</p>
-                <p className="text-sm text-muted-foreground">{cfg.guidance}</p>
-              </div>
-            </div>
+            {ackError && <p className="text-sm text-destructive">{ackError}</p>}
+
+            <p className="text-sm text-muted-foreground">{cfg.guidance}</p>
 
             {outcome.chief_complaint && (
               <Section title="Chief complaint">
                 <p className="text-sm leading-relaxed">{outcome.chief_complaint}</p>
               </Section>
+            )}
+
+            {outcome.red_flags.length > 0 && (
+              <div className="rounded-md border-l-2 border-red-400 bg-red-50/50 px-4 py-3">
+                <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-red-700">
+                  <AlertTriangle className="h-3.5 w-3.5" /> Red flags
+                </p>
+                <ul className="mt-1.5 space-y-1 text-sm text-red-900">
+                  {outcome.red_flags.map((f) => (
+                    <li key={f}>{f}</li>
+                  ))}
+                </ul>
+              </div>
             )}
 
             {outcome.hpi && (
@@ -112,19 +178,6 @@ export function CaseDetailScreen({ item, onBack }: Props) {
                   {outcome.hpi}
                 </p>
               </Section>
-            )}
-
-            {outcome.red_flags.length > 0 && (
-              <div className="border-l-2 border-red-400 pl-4">
-                <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-red-700">
-                  <AlertTriangle className="h-3.5 w-3.5" /> Red flags
-                </p>
-                <ul className="mt-1.5 space-y-1 text-sm">
-                  {outcome.red_flags.map((f) => (
-                    <li key={f}>{f}</li>
-                  ))}
-                </ul>
-              </div>
             )}
 
             {outcome.recommended_actions.length > 0 && (
@@ -142,35 +195,37 @@ export function CaseDetailScreen({ item, onBack }: Props) {
 
             {transcript.length > 0 && (
               <Section title="Interview transcript">
-                <dl className="space-y-3">
+                <div className="divide-y rounded-lg border">
                   {transcript.map((qa) => (
-                    <div key={qa.link_id}>
-                      <dt className="text-sm text-muted-foreground">{qa.question}</dt>
-                      <dd className="text-sm leading-relaxed">{qa.answer || "—"}</dd>
+                    <div key={qa.link_id} className="space-y-1 px-4 py-3">
+                      <p className="text-sm text-muted-foreground">{qa.question}</p>
+                      <p className="text-sm leading-relaxed">{qa.answer || "—"}</p>
                     </div>
                   ))}
-                </dl>
+                </div>
               </Section>
             )}
           </div>
 
           {/* Patient record + provenance */}
-          <aside className="space-y-7 lg:border-l lg:pl-6">
-            <RecordSection title="Conditions" entries={record?.conditions} empty="None active" />
-            <RecordSection title="Medications" entries={record?.medications} empty="None active" />
-            <RecordSection title="Recent vitals" entries={record?.vitals} empty="None on file" />
-            <RecordSection
-              title="Allergies"
-              entries={record?.allergies}
-              empty="None recorded"
-              danger
-            />
+          <aside className="space-y-6">
+            <div className="divide-y rounded-lg border">
+              <div className="px-4 py-2.5">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Patient record
+                </h2>
+              </div>
+              <RecordGroup title="Conditions" entries={record?.conditions} empty="None active" />
+              <RecordGroup title="Medications" entries={record?.medications} empty="None active" />
+              <RecordGroup title="Recent vitals" entries={record?.vitals} empty="None on file" />
+              <RecordGroup title="Allergies" entries={record?.allergies} empty="None recorded" danger />
+            </div>
 
             {outcome.citations.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <div className="space-y-2.5">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Guidelines cited
-                </p>
+                </h3>
                 <ul className="space-y-3">
                   {outcome.citations.map((c, i) => (
                     <li key={`${c.source}-${i}`} className="space-y-1">
@@ -205,7 +260,7 @@ export function CaseDetailScreen({ item, onBack }: Props) {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </h2>
@@ -214,7 +269,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function RecordSection({
+function RecordGroup({
   title,
   entries,
   empty,
@@ -226,18 +281,16 @@ function RecordSection({
   danger?: boolean;
 }) {
   return (
-    <div className="space-y-1.5">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="space-y-1.5 px-4 py-3">
+      <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {title}
       </h3>
       {entries && entries.length > 0 ? (
         <ul className="space-y-1 text-sm">
           {entries.map((e) => (
-            <li key={e.display} className={cn(danger && "text-red-700")}>
+            <li key={e.display} className={cn("leading-snug", danger && "text-red-700")}>
               {e.display}
-              {e.detail && (
-                <span className="text-muted-foreground"> — {e.detail}</span>
-              )}
+              {e.detail && <span className="text-muted-foreground"> · {e.detail}</span>}
             </li>
           ))}
         </ul>
@@ -254,7 +307,7 @@ function FhirResources({ item, outcome }: { item: TriageQueueItem; outcome: Case
   if (item.encounter_id) rows.push(["Encounter", item.encounter_id]);
   rows.push(["ServiceRequest", item.service_request_id]);
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         FHIR resources
       </h3>

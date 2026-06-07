@@ -198,6 +198,9 @@ export async function fetchTriageQueue(): Promise<TriageQueueItem[]> {
       const code = (sr.code?.coding?.[0]?.code as string) ?? "";
       const level = SR_CODE_TO_LEVEL[code] ?? "see-gp";
       const patientId = refId(sr.subject?.reference, "Patient") ?? "";
+      const ackNote = ((sr.note as Record<string, any>[]) ?? []).find((n) =>
+        ((n.text as string) ?? "").startsWith("Acknowledged: "),
+      );
       return {
         service_request_id: (sr.id as string) ?? "",
         encounter_id: refId(sr.encounter?.reference, "Encounter"),
@@ -208,6 +211,7 @@ export async function fetchTriageQueue(): Promise<TriageQueueItem[]> {
         referral: (sr.code?.text as string) ?? "",
         authored_on: (sr.authoredOn as string) ?? null,
         escalated: level === "urgent-care" || level === "ed",
+        acknowledged_at: ackNote ? (ackNote.text as string).slice(14) : null,
       };
     });
 
@@ -377,9 +381,11 @@ function parseHandoffNotes(notes: Record<string, any>[]): {
   red_flags: string[];
   citations: Citation[];
   qr_id: string | null;
+  acknowledged_at: string | null;
 } {
   let hpi = "";
   let qr_id: string | null = null;
+  let acknowledged_at: string | null = null;
   const recommended_actions: string[] = [];
   const red_flags: string[] = [];
   const citations: Citation[] = [];
@@ -390,6 +396,7 @@ function parseHandoffNotes(notes: Record<string, any>[]): {
     else if (text.startsWith("Action: ")) recommended_actions.push(text.slice(8));
     else if (text.startsWith("Red flag: ")) red_flags.push(text.slice(10));
     else if (text.startsWith("QR: ")) qr_id = text.slice(4);
+    else if (text.startsWith("Acknowledged: ")) acknowledged_at = text.slice(14);
     else if (text.startsWith("Guideline: ")) {
       const rest = text.slice(11);
       const first = rest.indexOf("|");
@@ -405,7 +412,7 @@ function parseHandoffNotes(notes: Record<string, any>[]): {
       }
     }
   }
-  return { hpi, recommended_actions, red_flags, citations, qr_id };
+  return { hpi, recommended_actions, red_flags, citations, qr_id, acknowledged_at };
 }
 
 export async function fetchCaseOutcome(serviceRequestId: string): Promise<CaseOutcome> {
@@ -418,4 +425,33 @@ export async function fetchCaseOutcome(serviceRequestId: string): Promise<CaseOu
     authored_on: (sr.authoredOn as string) ?? null,
     ...parsed,
   };
+}
+
+// Record a clinician acknowledgement on an escalated case. Read-modify-write:
+// IRIS FHIR has no "acknowledged" status on ServiceRequest, so we append a
+// sentinel note (parsed back by parseHandoffNotes / fetchTriageQueue). Returns
+// the acknowledgement timestamp.
+export async function acknowledgeCase(serviceRequestId: string): Promise<string> {
+  const sr = await fhirGet(`/ServiceRequest/${serviceRequestId}`);
+  const at = new Date().toISOString();
+  sr.note = [...((sr.note as Record<string, any>[]) ?? []), { text: `Acknowledged: ${at}` }];
+
+  let resp: Response;
+  try {
+    resp = await fetch(`${FHIR_BASE}/ServiceRequest/${serviceRequestId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/fhir+json",
+        Accept: "application/fhir+json",
+      },
+      body: JSON.stringify(sr),
+    });
+  } catch {
+    throw new ApiError("fhir-unreachable", "Cannot reach the FHIR server.");
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    throw new ApiError("fhir-http", "Could not save the acknowledgement.", resp.status, detail);
+  }
+  return at;
 }

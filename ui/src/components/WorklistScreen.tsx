@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Inbox, RefreshCw } from "lucide-react";
+import { Check, ChevronRight, Inbox, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchTriageQueue, ApiError } from "@/api";
 import { levelConfig } from "@/data/questions";
@@ -44,7 +44,7 @@ export function WorklistScreen({ onOpen }: Props) {
     load();
   }, [load]);
 
-  const escalations = items.filter((i) => i.escalated).length;
+  const unacked = items.filter((i) => i.escalated && !i.acknowledged_at).length;
 
   return (
     <div className="space-y-5">
@@ -53,8 +53,8 @@ export function WorklistScreen({ onOpen }: Props) {
           <h1 className="text-xl font-semibold tracking-tight">Worklist</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {items.length} {items.length === 1 ? "case" : "cases"}
-            {escalations > 0 && (
-              <span className="text-red-700">  ·  {escalations} need urgent review</span>
+            {unacked > 0 && (
+              <span className="text-red-700">  ·  {unacked} need urgent review</span>
             )}
           </p>
         </div>
@@ -104,11 +104,16 @@ export function WorklistScreen({ onOpen }: Props) {
                       <span className="truncate font-medium">
                         {item.patient_name || "Unknown patient"}
                       </span>
-                      {item.escalated && (
-                        <span className="shrink-0 text-xs font-medium text-red-700">
-                          alert raised
-                        </span>
-                      )}
+                      {item.escalated &&
+                        (item.acknowledged_at ? (
+                          <span className="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground">
+                            <Check className="h-3 w-3 text-emerald-600" /> acknowledged
+                          </span>
+                        ) : (
+                          <span className="shrink-0 text-xs font-medium text-red-700">
+                            alert raised
+                          </span>
+                        ))}
                     </span>
                     <span className="mt-0.5 block truncate text-sm text-muted-foreground">
                       {item.chief_complaint || item.referral || "No chief complaint recorded"}

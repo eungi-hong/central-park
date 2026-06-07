@@ -42,6 +42,9 @@ export interface TriageQueueItem {
   referral: string;
   authored_on: string | null;
   escalated: boolean;
+  // ISO timestamp set when a clinician acknowledges an escalated case, parsed
+  // back from a ServiceRequest.note sentinel; null until acknowledged.
+  acknowledged_at: string | null;
 }
 
 // The patient's standing clinical record, read live from FHIR for the
@@ -74,4 +77,5 @@ export interface CaseOutcome {
   citations: Citation[];
   qr_id: string | null;
   authored_on: string | null;
+  acknowledged_at: string | null;
 }
