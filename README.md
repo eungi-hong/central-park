@@ -1,4 +1,4 @@
-# Central Park
+# Triage Park
 
 **A conversational FHIR triage assistant.** A patient answers a short intake interview; an LLM-backed agent reads their FHIR record, retrieves matching triage guidelines by vector search, and produces a clinician handoff — a triage level (self-care / see-GP / urgent-care / ED) with a cited rationale. Every interview and its outcome are written back to FHIR, and a clinician reviews them in a worklist.
 
@@ -13,7 +13,6 @@ git clone https://github.com/eungi-hong/central-park.git
 cd central-park
 cp .env.example .env          # then set OPENAI_API_KEY=sk-...
 docker compose up --build      # IRIS cold start ~90s
-docker compose restart agent   # seed the Questionnaire once IRIS is ready
 ```
 
 Then open:
@@ -24,7 +23,7 @@ Then open:
 | **http://localhost:8501/intake** | Patient self-intake — the interview |
 | http://localhost:52773/csp/sys/UtilHome.csp | IRIS Management Portal (`_SYSTEM` / `SYS`) |
 
-The console ships with three seeded cases (self-care, see-GP, and an emergency). Open `/intake`, run the demo patient `demo-patient-1` through the chest-tightness scenario, and the new case appears in the worklist.
+Once seeding finishes, the console shows three example cases (self-care, see-GP, and an emergency) — no interview needed. Then open `/intake`, run the demo patient `demo-patient-1` through the chest-tightness scenario, and watch a new case appear live in the worklist.
 
 ---
 
@@ -63,7 +62,7 @@ The console ships with three seeded cases (self-care, see-GP, and an emergency).
                   OpenAI (chat)
 ```
 
-Three services, one external dependency (OpenAI). The agent sends **raw text** to IRIS, which computes embeddings server-side via `%Embedding.OpenAI` — the platform's intended AI Hub pattern. A LangGraph state machine wraps the four-step flow; a deterministic red-flag gate can only ever *escalate*, never downgrade, so a missed keyword can't lower a triage level below a matched emergency phrase.
+Three services, one external dependency (OpenAI). The agent sends **raw text** to IRIS, which computes embeddings server-side via `%Embedding.OpenAI` — the platform's intended AI Hub pattern. A LangGraph state machine wraps the five-node flow; a deterministic red-flag gate can only ever *escalate*, never downgrade, so a missed keyword can't lower a triage level below a matched emergency phrase.
 
 > The agent runs as a sidecar rather than Embedded Python: the image's ARM64 Embedded Python build is unstable (Callin SEGVs, broken `_uuid`). The IRIS production graph stays first-class — every triage is an `Ens.MessageHeader` visible in Visual Trace.
 
@@ -71,13 +70,13 @@ Three services, one external dependency (OpenAI). The agent sends **raw text** t
 
 ## InterSystems features used
 
-| Capability | How Central Park uses it |
+| Capability | How Triage Park uses it |
 | --- | --- |
 | **FHIR R4** | Reads patient context; writes `QuestionnaireResponse`, `Encounter`, `ServiceRequest`, coded `Observation`s, and `Communication` |
 | **Vector Search** | `VECTOR(float, 1536)` guideline corpus queried with `VECTOR_COSINE` |
 | **AI Hub** | `%Embedding.Config` + `%Embedding.OpenAI` embed guidelines and queries inside IRIS; SSL config installed at boot |
 | **Interoperability** | Production with a REST inbox business service, triage agent business operation (HTTP outbound), and `Ens.AlertRequest` on urgent cases |
-| **LLM / LangGraph** | Four-node state machine in the sidecar; single deterministic LLM call returning structured JSON |
+| **LLM / LangGraph** | Five-node state machine in the sidecar (gather context → retrieve guidelines → red-flag gate → reason → escalate); single deterministic LLM call returning structured JSON |
 | **Docker** | `docker compose up --build` boots all three services |
 
 ### FHIR resources written
@@ -94,9 +93,29 @@ Persisting the narrative on the `ServiceRequest` is what lets the console recons
 
 ---
 
+## Project layout
+
+```
+.
+├─ ui/                      # React SPA — clinician console (/) + patient intake (/intake)
+├─ agent/                   # Dockerfile for the FastAPI + LangGraph sidecar
+├─ src/
+│  ├─ python/central_park/  # Agent: LangGraph graph, tools (FHIR · vector · escalate), seeding
+│  └─ cls/CentralPark/      # ObjectScript: FHIR install, REST dispatch, interop production
+├─ iris-config/             # Boot script + demo seed bundles (patients, questionnaire)
+├─ web/                     # Static assets served by IRIS
+├─ Dockerfile               # IRIS for Health image: namespace, FHIR R4 endpoint, classes
+├─ docker-compose.yml       # iris + agent + ui  (+ optional ollama profile)
+└─ module.xml               # OpenExchange / IPM manifest
+```
+
+> Internal identifiers keep the original `central-park` / `CentralPark` / `/centralpark` names (package, classes, REST path, containers); "Triage Park" is the product/display name.
+
+---
+
 ## Demo data
 
-Auto-seeded on first boot (`Install.cls` → `iris-config/seed/`):
+Seeded automatically at agent startup: the agent waits for the FHIR endpoint, then loads the bundles in `iris-config/seed/` (and the guideline corpus). Every seed is idempotent, so it re-runs safely on each restart and a single `docker compose up` needs no manual seed step.
 
 | Patient | Profile | Seeded case |
 | --- | --- | --- |
@@ -146,5 +165,6 @@ Switch chat to Anthropic (`CP_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`) or 
 ## Notes
 
 - **Iterate** — Python under `src/python/` is bind-mounted: `docker compose restart agent`. ObjectScript and boot config need `docker compose up --build`.
+- **Seeding** runs automatically at agent startup and is idempotent. If the worklist ever looks empty (e.g. IRIS was unusually slow to start), `docker compose restart agent` re-runs the seed safely.
 - **Data** persists in the `iris-data` volume across restarts. `docker compose down -v` wipes it and re-seeds on next boot.
 - **License** — MIT, see `LICENSE`.

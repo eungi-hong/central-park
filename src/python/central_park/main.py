@@ -14,24 +14,43 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from central_park.agent import run, run_interview
-from central_park.seed_module import seed_guidelines, seed_questionnaire
+from central_park.seed_module import (
+    seed_demo_patients,
+    seed_guidelines,
+    seed_questionnaire,
+    wait_for_fhir,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Seed the guideline corpus into IRIS on startup. Idempotent (upserts on
-    # slug). All failures here are non-fatal so the agent still boots in
-    # degraded states (no API key, IRIS not yet ready, etc.).
+    # Seed IRIS on startup. All steps are idempotent and non-fatal so the agent
+    # still boots in degraded states (no API key, IRIS not yet ready, etc.).
+    #
+    # Wait for the FHIR endpoint first so a single `docker compose up` seeds
+    # cleanly even when the agent wins the boot race against IRIS's ~90s start.
+    #
+    # The fast FHIR seeds (Questionnaire, demo patients) run first so the intake
+    # form and clinician worklist populate quickly; seed_guidelines() embeds 30
+    # snippets serially via OpenAI and can take 30-60s, so it goes last.
     try:
-        seed_guidelines()
+        wait_for_fhir()
     except Exception:
-        logging.getLogger("central_park.startup").exception("seed_guidelines failed (non-fatal)")
+        logging.getLogger("central_park.startup").exception("wait_for_fhir failed (non-fatal)")
     try:
         seed_questionnaire()
     except Exception:
         logging.getLogger("central_park.startup").exception("seed_questionnaire failed (non-fatal)")
+    try:
+        seed_demo_patients()
+    except Exception:
+        logging.getLogger("central_park.startup").exception("seed_demo_patients failed (non-fatal)")
+    try:
+        seed_guidelines()
+    except Exception:
+        logging.getLogger("central_park.startup").exception("seed_guidelines failed (non-fatal)")
     yield
 
 

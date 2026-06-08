@@ -44,6 +44,8 @@ services:
     volumes:
       # Live-reload for Python edits.
       - ./src/python/central_park:/app/central_park
+      # Demo FHIR bundles, re-seeded at runtime by seed_demo_patients().
+      - ./iris-config/seed:/app/seed:ro
     depends_on:
       iris:
         condition: service_started

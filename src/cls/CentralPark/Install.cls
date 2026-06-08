@@ -158,7 +158,7 @@ ClassMethod PostBundle(bundlePath As %String) As %Boolean
     try {
         if '##class(%File).Exists(bundlePath) {
             write !,"Seed bundle not found at ",bundlePath
-            quit 0
+            return 0
         }
         set stream = ##class(%Stream.FileBinary).%New()
         do stream.LinkToFile(bundlePath)
@@ -173,14 +173,14 @@ ClassMethod PostBundle(bundlePath As %String) As %Boolean
         set sc = req.Post(..#ENDPOINT)
         if 'sc {
             write !,"Seed POST failed: ",$system.Status.GetErrorText(sc)
-            quit 0
+            return 0
         }
         set status = req.HttpResponse.StatusCode
         write !,"Seed POST ",bundlePath," status=",status
-        quit ((status = 200) || (status = 201))
+        return ((status = 200) || (status = 201))
     } catch ex {
         write !,"Seed error: ",ex.DisplayString()
-        quit 0
+        return 0
     }
 }
 

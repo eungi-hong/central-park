@@ -399,15 +399,11 @@ function parseHandoffNotes(notes: Record<string, any>[]): {
     else if (text.startsWith("Acknowledged: ")) acknowledged_at = text.slice(14);
     else if (text.startsWith("Guideline: ")) {
       const rest = text.slice(11);
-      const first = rest.indexOf("|");
-      const second = rest.indexOf("|", first + 1);
-      if (first >= 0 && second >= 0) {
-        const scoreStr = rest.slice(0, first);
-        const score = scoreStr ? Number(scoreStr) : undefined;
+      const sep = rest.indexOf("|");
+      if (sep >= 0) {
         citations.push({
-          score: Number.isFinite(score) ? score : undefined,
-          source: rest.slice(first + 1, second),
-          snippet: rest.slice(second + 1),
+          source: rest.slice(0, sep),
+          snippet: rest.slice(sep + 1),
         });
       }
     }

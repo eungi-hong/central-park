@@ -274,12 +274,10 @@ def _handoff_notes(handoff: dict) -> list[dict]:
     for flag in handoff.get("red_flags") or []:
         notes.append({"text": f"Red flag: {flag}"})
     for c in handoff.get("citations") or []:
-        score = c.get("score")
-        score_s = f"{score:.4f}" if isinstance(score, (int, float)) else ""
         source = c.get("source") or c.get("slug") or ""
         snippet = c.get("snippet") or ""
-        # score|source|snippet — score/source are single-token, snippet is last.
-        notes.append({"text": f"Guideline: {score_s}|{source}|{snippet}"})
+        # source|snippet — source is a single token, snippet is last.
+        notes.append({"text": f"Guideline: {source}|{snippet}"})
     if qr_id := handoff.get("qr_id"):
         notes.append({"text": f"QR: {qr_id}"})
     return notes
@@ -358,8 +356,6 @@ def create_observations(
     }
 
     by_link = {item["link_id"]: item["answer"] for item in qa_items}
-    _log.info("create_observations: severity=%r symptoms=%r",
-              by_link.get("severity"), by_link.get("associated-symptoms"))
     payloads = []
 
     # Severity score → LOINC 72514-3

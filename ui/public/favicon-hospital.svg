@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Hospital building mark for the clinician console, teal primary theme. -->
+  <rect width="32" height="32" rx="7" fill="#177082"/>
+  <!-- building body -->
+  <rect x="8" y="12" width="16" height="13" rx="1.2" fill="#ffffff"/>
+  <!-- medical cross at top center -->
+  <rect x="15" y="13.5" width="2" height="5.5" rx="0.4" fill="#177082"/>
+  <rect x="13.25" y="15.25" width="5.5" height="2" rx="0.4" fill="#177082"/>
+  <!-- two windows -->
+  <rect x="10.5" y="20" width="2.5" height="2.5" rx="0.4" fill="#177082"/>
+  <rect x="19" y="20" width="2.5" height="2.5" rx="0.4" fill="#177082"/>
+  <!-- doorway -->
+  <rect x="14.5" y="21.5" width="3" height="3.5" fill="#177082"/>
+</svg>

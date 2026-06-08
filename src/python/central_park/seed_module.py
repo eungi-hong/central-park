@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import pathlib
+import time
 
 import httpx
 
@@ -23,6 +24,14 @@ from central_park.llm import get_provider
 
 log = logging.getLogger("central_park.seed")
 _CORPUS_PATH = pathlib.Path(__file__).parent / "data" / "guidelines.json"
+
+# Demo FHIR transaction bundles, mounted into the agent container from
+# ./iris-config/seed (see docker-compose.yml). The build-time install hook
+# self-POSTs these too, but the IRIS web server isn't reliably serving during
+# the image build, so we re-seed here at runtime when IRIS is confirmed up.
+# Both bundles PUT on stable ids, so re-posting is idempotent.
+_SEED_DIR = pathlib.Path("/app/seed")
+_DEMO_BUNDLES = ("demo-patient-1.json", "demo-cases.json")
 
 _QUESTIONNAIRE = {
     "resourceType": "Questionnaire",
@@ -60,6 +69,69 @@ def seed_questionnaire() -> None:
         log.info("Questionnaire seed: status=%s id=%s", resp.status_code, body.get("id", "triage-intake"))
     except Exception as e:
         log.warning("Questionnaire seed failed: %s", e)
+
+
+def wait_for_fhir(attempts: int = 30, delay: float = 4.0) -> bool:
+    """Block until the IRIS FHIR endpoint answers, or give up after attempts*delay.
+
+    On a cold `docker compose up`, the agent can start before IRIS finishes its
+    ~90s boot. Polling /metadata here lets a single `up` seed successfully,
+    without the operator needing a manual `docker compose restart agent`.
+    Returns True once FHIR responds, False on timeout (callers seed anyway —
+    every seed is idempotent and best-effort).
+    """
+    cfg = load()
+    auth = (cfg.fhir_user, cfg.fhir_password) if cfg.fhir_user else None
+    for i in range(attempts):
+        try:
+            resp = httpx.get(
+                f"{cfg.fhir_base_url}/metadata",
+                auth=auth,
+                headers={"Accept": "application/fhir+json"},
+                timeout=10.0,
+            )
+            if resp.is_success:
+                log.info("FHIR endpoint ready after %d attempt(s).", i + 1)
+                return True
+        except Exception:
+            pass
+        time.sleep(delay)
+    log.warning(
+        "FHIR endpoint not ready after ~%ds; seeding anyway (best-effort).",
+        int(attempts * delay),
+    )
+    return False
+
+
+def seed_demo_patients() -> None:
+    """POST the demo patient transaction bundles to FHIR. Idempotent.
+
+    Each bundle PUTs resources on stable ids, so re-running on every agent
+    start is safe. Best-effort: a failure here just means the worklist starts
+    empty until the next successful seed.
+    """
+    cfg = load()
+    auth = (cfg.fhir_user, cfg.fhir_password) if cfg.fhir_user else None
+    for name in _DEMO_BUNDLES:
+        path = _SEED_DIR / name
+        if not path.exists():
+            log.warning("Demo bundle not found at %s, skipping.", path)
+            continue
+        try:
+            bundle = json.loads(path.read_text(encoding="utf-8"))
+            # A FHIR transaction Bundle POSTs to the base endpoint, not a
+            # resource-type path.
+            resp = httpx.post(
+                cfg.fhir_base_url,
+                json=bundle,
+                auth=auth,
+                headers={"Content-Type": "application/fhir+json", "Accept": "application/fhir+json"},
+                timeout=60.0,
+            )
+            resp.raise_for_status()
+            log.info("Demo bundle %s seeded: status=%s", name, resp.status_code)
+        except Exception as e:
+            log.warning("Demo bundle %s seed failed: %s", name, e)
 
 
 def seed_guidelines() -> None:

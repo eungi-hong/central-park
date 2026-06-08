@@ -18,7 +18,29 @@ function usePathname(): string {
   return path;
 }
 
+// Swap the browser-tab favicon by audience: a hospital mark for the clinician
+// console, the pulse mark for patient intake. Removing and re-adding the icon
+// links (rather than mutating href) forces the browser to re-read them.
+function useRouteFavicon(isIntake: boolean) {
+  useEffect(() => {
+    const svg = isIntake ? "/favicon.svg" : "/favicon-hospital.svg";
+    const png = isIntake ? "/favicon-32.png" : "/favicon-hospital-32.png";
+    document.querySelectorAll('link[rel="icon"]').forEach((el) => el.remove());
+    const add = (type: string, href: string) => {
+      const link = document.createElement("link");
+      link.rel = "icon";
+      link.type = type;
+      link.href = href;
+      document.head.appendChild(link);
+    };
+    add("image/svg+xml", svg);
+    add("image/png", png);
+  }, [isIntake]);
+}
+
 export default function App() {
   const path = usePathname();
-  return path.startsWith("/intake") ? <PatientIntakeApp /> : <ClinicianApp />;
+  const isIntake = path.startsWith("/intake");
+  useRouteFavicon(isIntake);
+  return isIntake ? <PatientIntakeApp /> : <ClinicianApp />;
 }

@@ -61,7 +61,7 @@ export function PatientIntakeApp() {
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <Activity className="h-4 w-4" />
           </span>
-          <span className="text-[15px] font-semibold tracking-tight">Central Park</span>
+          <span className="text-[15px] font-semibold tracking-tight">Triage Park</span>
           <span className="text-sm text-muted-foreground">· Patient intake</span>
         </div>
       </header>
