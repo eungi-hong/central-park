@@ -36,6 +36,18 @@ Once seeding finishes, the console shows three example cases (self-care, see-GP,
 
 ---
 
+## Screenshots
+
+The patient interviews, the agent triages, and the clinician reviews — the three surfaces of the flow:
+
+| Patient intake interview (`/intake`) | Clinician console (`/`) |
+| --- | --- |
+| ![Patient intake interview — the 6-question structured intake chat](docs/images/intake-interview.png) | ![Clinician console — the triage worklist](docs/images/clinician-console.png) |
+
+The clinician handoff summary, grounded on the patient's FHIR record with cited guidelines and the IDs of every resource written back:
+
+![Clinician handoff summary with triage level, cited guidelines, and written-back FHIR resource IDs](docs/images/handoff-summary.png)
+
 ## Architecture
 
 ```
