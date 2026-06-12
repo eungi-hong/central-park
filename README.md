@@ -18,7 +18,7 @@ The [contest bonuses](https://community.intersystems.com/post/technology-bonuses
 | LLM AI or LangChain usage | 3 | ✅ | Five-node LangGraph state machine + structured LLM reasoning |
 | Docker container usage | 2 | ✅ | `docker compose up --build` boots all three services |
 | ZPM Package deployment | 2 | ✅ | `module.xml` manifest for IPM deployment |
-| Online Demo | 2 | 🔜 | Cloud-hosted instance |
+| Online Demo | 2 | ✅ | Cloud-hosted instance |
 | Implement InterSystems Community Idea | 4 | ✅ | Implements [TTTC — *The Tool That Cares*](https://ideas.intersystems.com/ideas/DPI-I-283) (Community Opportunity) |
 | First Article on Developer Community | 2 | ✅ | Build write-up on the Developer Community |
 | Second Article on DC | 1 | ✅ | Second write-up / translation on the Developer Community |
