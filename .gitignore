@@ -32,3 +32,5 @@ __pycache__/
 dist/
 build/
 *.xml.bak
+
+DEPLOY.md

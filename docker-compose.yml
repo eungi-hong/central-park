@@ -2,9 +2,15 @@ services:
   iris:
     build: .
     container_name: central-park-iris
+    restart: unless-stopped
     ports:
-      - "1972:1972"     # SuperServer (JDBC/ODBC, xDBC, IRIS Native)
-      - "52773:52773"   # Web (Management Portal, FHIR endpoint, REST)
+      # Bound to 127.0.0.1 so these never land on a public interface. Docker
+      # otherwise publishes straight past the host firewall, so this binding —
+      # not ufw — is what keeps IRIS off the VM's public IP. On a cloud VM,
+      # reach the Management Portal / Visual Trace through an SSH tunnel:
+      #   ssh -L 52773:localhost:52773 root@your-vm   ->   http://localhost:52773
+      - "127.0.0.1:1972:1972"     # SuperServer (JDBC/ODBC, xDBC, IRIS Native)
+      - "127.0.0.1:52773:52773"   # Web (Management Portal, FHIR endpoint, REST)
     environment:
       # Forwarded into the container so Install.cls's InstallEmbeddingConfig
       # can stamp the key into the %Embedding.Config row at boot.
@@ -27,8 +33,10 @@ services:
       context: .
       dockerfile: agent/Dockerfile
     container_name: central-park-agent
+    restart: unless-stopped
     ports:
-      - "8001:8000"
+      # Localhost-only; the UI reaches the agent over the Docker network (agent:8000).
+      - "127.0.0.1:8001:8000"
     environment:
       CP_LLM_PROVIDER: ${CP_LLM_PROVIDER:-openai}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -54,10 +62,13 @@ services:
     build:
       context: ./ui
     container_name: central-park-ui
+    restart: unless-stopped
     # nginx serves the built SPA on :80 and reverse-proxies /api -> agent and
     # /fhir -> IRIS (injecting Basic auth) so the browser stays same-origin.
+    # In production, Caddy (docker-compose.prod.yml) fronts this over the Docker
+    # network, so this localhost binding is only for local-dev access.
     ports:
-      - "8501:80"
+      - "127.0.0.1:8501:80"
     environment:
       CP_AGENT_BASE_URL: ${CP_AGENT_BASE_URL:-http://agent:8000}
       CP_FHIR_BASE_URL: ${CP_FHIR_BASE_URL:-http://iris:52773/csp/healthshare/centralpark/fhir/r4}
