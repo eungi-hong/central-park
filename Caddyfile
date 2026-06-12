@@ -1,0 +1,17 @@
+# Public entry point for Triage Park.
+#
+# Caddy terminates TLS and reverse-proxies to the UI container (nginx) over the
+# private Docker network. The site address comes from the SITE_ADDRESS env var,
+# passed in by docker-compose.prod.yml (set it in .env):
+#
+#   SITE_ADDRESS=triage.yourdomain.com  -> free Let's Encrypt cert, HTTPS
+#   SITE_ADDRESS=:80                     -> plain HTTP (use for a bare IP demo)
+#
+# To later password-gate the whole demo, add inside the block:
+#   basic_auth { demo <bcrypt-hash> }
+# generate the hash with: docker run --rm caddy caddy hash-password --plaintext 'pw'
+
+{$SITE_ADDRESS} {
+	encode gzip
+	reverse_proxy ui:80
+}

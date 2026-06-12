@@ -1,0 +1,35 @@
+# Production overlay — adds a public HTTPS reverse proxy in front of the stack.
+#
+# Layer it on top of the base file (order matters — base first, then this):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Caddy is the ONLY service published to the internet. It terminates TLS
+# (automatic Let's Encrypt when SITE_ADDRESS is a domain) and reverse-proxies to
+# the UI container over the private Docker network. IRIS, the agent, and the UI
+# keep the 127.0.0.1 bindings from the base file, so nothing else on the VM is
+# reachable from outside.
+services:
+  caddy:
+    image: caddy:2
+    container_name: central-park-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"          # HTTP/3 (QUIC)
+    environment:
+      # How the public URL is served, read from .env:
+      #   SITE_ADDRESS=triage.yourdomain.com  -> automatic HTTPS (Let's Encrypt)
+      #   SITE_ADDRESS=:80                     -> plain HTTP on the bare IP
+      # (Let's Encrypt cannot issue certs for a raw IP, so HTTPS needs a domain.)
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data        # persisted certs/ACME state — survives restarts
+      - caddy-config:/config
+    depends_on:
+      - ui
+
+volumes:
+  caddy-data:
+  caddy-config:
