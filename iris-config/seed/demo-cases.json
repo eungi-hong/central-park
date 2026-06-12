@@ -290,6 +290,285 @@
           {"text": "QR: demo-case4-qr"}
         ]
       }
+    },
+
+    {
+      "fullUrl": "Patient/demo-patient-5",
+      "request": {"method": "PUT", "url": "Patient/demo-patient-5"},
+      "resource": {
+        "resourceType": "Patient",
+        "id": "demo-patient-5",
+        "name": [{"family": "Whitfield", "given": ["Eleanor"]}],
+        "gender": "female",
+        "birthDate": "1953-11-22"
+      }
+    },
+    {
+      "fullUrl": "Condition/demo-cond-t2dm-5",
+      "request": {"method": "PUT", "url": "Condition/demo-cond-t2dm-5"},
+      "resource": {
+        "resourceType": "Condition",
+        "id": "demo-cond-t2dm-5",
+        "subject": {"reference": "Patient/demo-patient-5"},
+        "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "active", "display": "Active"}]},
+        "code": {"coding": [{"system": "http://snomed.info/sct", "code": "44054006", "display": "Type 2 diabetes mellitus"}], "text": "Type 2 diabetes mellitus"},
+        "onsetDateTime": "2011-06-10"
+      }
+    },
+    {
+      "fullUrl": "MedicationRequest/demo-med-metformin-5",
+      "request": {"method": "PUT", "url": "MedicationRequest/demo-med-metformin-5"},
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "demo-med-metformin-5",
+        "status": "active",
+        "intent": "order",
+        "subject": {"reference": "Patient/demo-patient-5"},
+        "medicationCodeableConcept": {"text": "Metformin 1000 mg"},
+        "authoredOn": "2024-02-01",
+        "dosageInstruction": [{"text": "1000 mg twice daily with food"}]
+      }
+    },
+    {
+      "fullUrl": "Observation/demo-obs-temp-5",
+      "request": {"method": "PUT", "url": "Observation/demo-obs-temp-5"},
+      "resource": {
+        "resourceType": "Observation",
+        "id": "demo-obs-temp-5",
+        "status": "final",
+        "subject": {"reference": "Patient/demo-patient-5"},
+        "effectiveDateTime": "2026-06-08T10:20:00Z",
+        "code": {"text": "Body temperature", "coding": [{"system": "http://loinc.org", "code": "8310-5", "display": "Body temperature"}]},
+        "valueQuantity": {"value": 38.9, "unit": "Cel"}
+      }
+    },
+    {
+      "fullUrl": "Encounter/demo-case5-enc",
+      "request": {"method": "PUT", "url": "Encounter/demo-case5-enc"},
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "demo-case5-enc",
+        "status": "finished",
+        "class": {"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "VR", "display": "virtual"},
+        "type": [{"coding": [{"system": "http://snomed.info/sct", "code": "11429006", "display": "Consultation"}], "text": "Triage consultation"}],
+        "subject": {"reference": "Patient/demo-patient-5"},
+        "period": {"start": "2026-06-08T10:20:00Z", "end": "2026-06-08T10:20:00Z"},
+        "reasonCode": [{"text": "Triage intake QuestionnaireResponse/demo-case5-qr"}]
+      }
+    },
+    {
+      "fullUrl": "QuestionnaireResponse/demo-case5-qr",
+      "request": {"method": "PUT", "url": "QuestionnaireResponse/demo-case5-qr"},
+      "resource": {
+        "resourceType": "QuestionnaireResponse",
+        "id": "demo-case5-qr",
+        "questionnaire": "Questionnaire/triage-intake",
+        "status": "completed",
+        "subject": {"reference": "Patient/demo-patient-5"},
+        "authored": "2026-06-08T10:20:00Z",
+        "item": [
+          {"linkId": "chief-complaint", "text": "What's bothering you today?", "answer": [{"valueString": "Burning when I pass water, and now a deep ache in my right side and lower back."}]},
+          {"linkId": "onset", "text": "When did it start, and how has it changed?", "answer": [{"valueString": "The burning began yesterday; the back pain and a fever came on this morning."}]},
+          {"linkId": "severity", "text": "How bad is it right now?", "answer": [{"valueString": "7 out of 10"}]},
+          {"linkId": "associated-symptoms", "text": "Are you noticing any of these as well?", "answer": [{"valueString": "Fever, Nausea"}]},
+          {"linkId": "history", "text": "Has this happened before, or any recent illness or injury?", "answer": [{"valueString": "I get water infections now and then, and I have type 2 diabetes."}]},
+          {"linkId": "self-treatment", "text": "Have you tried anything for it yet?", "answer": [{"valueString": "Drinking plenty of water and took paracetamol for the fever."}]}
+        ]
+      }
+    },
+    {
+      "fullUrl": "ServiceRequest/demo-case5-sr",
+      "request": {"method": "PUT", "url": "ServiceRequest/demo-case5-sr"},
+      "resource": {
+        "resourceType": "ServiceRequest",
+        "id": "demo-case5-sr",
+        "status": "active",
+        "intent": "proposal",
+        "priority": "urgent",
+        "code": {"coding": [{"system": "http://snomed.info/sct", "code": "310861008", "display": "Referral to urgent care clinic"}], "text": "Referral to urgent care clinic"},
+        "subject": {"reference": "Patient/demo-patient-5"},
+        "encounter": {"reference": "Encounter/demo-case5-enc"},
+        "authoredOn": "2026-06-08T10:20:00Z",
+        "reasonCode": [{"text": "Dysuria with flank pain and fever"}],
+        "note": [
+          {"text": "HPI: 72-year-old woman with type 2 diabetes reporting one day of dysuria now accompanied by right-sided flank and lower-back pain, fever (38.9 C), and nausea. The combination of lower urinary tract symptoms with flank pain and systemic features raises concern for pyelonephritis, and her diabetes lowers the threshold for same-day assessment."},
+          {"text": "Action: Attend an urgent care clinic or same-day GP appointment today for examination, urine testing, and likely antibiotics."},
+          {"text": "Action: Keep up fluid intake and continue paracetamol for fever in the meantime."},
+          {"text": "Action: Go to the emergency department if you develop rigors with shaking, confusion, persistent vomiting, or are unable to keep fluids down."},
+          {"text": "Red flag: fever with flank pain (possible pyelonephritis)"},
+          {"text": "Red flag: fever in a patient with diabetes"},
+          {"text": "Guideline: 0.88|UTI Triage (uc-uti-001)|Burning on urination, frequency, and lower abdominal discomfort can suggest urinary tract infection. With high fever, flank pain, or vomiting, pyelonephritis is possible and warrants urgent care."},
+          {"text": "Guideline: 0.80|Adult Fever Triage (uc-fever-001)|Adult fever above 39.4 C, or fever with confusion, stiff neck, rash, or shortness of breath, requires urgent or emergency evaluation. Fever in patients with diabetes or who are immunocompromised should be seen the same day."},
+          {"text": "QR: demo-case5-qr"}
+        ]
+      }
+    },
+
+    {
+      "fullUrl": "Patient/demo-patient-6",
+      "request": {"method": "PUT", "url": "Patient/demo-patient-6"},
+      "resource": {
+        "resourceType": "Patient",
+        "id": "demo-patient-6",
+        "name": [{"family": "Osei", "given": ["Daniel"]}],
+        "gender": "male",
+        "birthDate": "1998-04-17"
+      }
+    },
+    {
+      "fullUrl": "Observation/demo-obs-temp-6",
+      "request": {"method": "PUT", "url": "Observation/demo-obs-temp-6"},
+      "resource": {
+        "resourceType": "Observation",
+        "id": "demo-obs-temp-6",
+        "status": "final",
+        "subject": {"reference": "Patient/demo-patient-6"},
+        "effectiveDateTime": "2026-06-08T13:45:00Z",
+        "code": {"text": "Body temperature", "coding": [{"system": "http://loinc.org", "code": "8310-5", "display": "Body temperature"}]},
+        "valueQuantity": {"value": 37.8, "unit": "Cel"}
+      }
+    },
+    {
+      "fullUrl": "Encounter/demo-case6-enc",
+      "request": {"method": "PUT", "url": "Encounter/demo-case6-enc"},
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "demo-case6-enc",
+        "status": "finished",
+        "class": {"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "VR", "display": "virtual"},
+        "type": [{"coding": [{"system": "http://snomed.info/sct", "code": "11429006", "display": "Consultation"}], "text": "Triage consultation"}],
+        "subject": {"reference": "Patient/demo-patient-6"},
+        "period": {"start": "2026-06-08T13:45:00Z", "end": "2026-06-08T13:45:00Z"},
+        "reasonCode": [{"text": "Triage intake QuestionnaireResponse/demo-case6-qr"}]
+      }
+    },
+    {
+      "fullUrl": "QuestionnaireResponse/demo-case6-qr",
+      "request": {"method": "PUT", "url": "QuestionnaireResponse/demo-case6-qr"},
+      "resource": {
+        "resourceType": "QuestionnaireResponse",
+        "id": "demo-case6-qr",
+        "questionnaire": "Questionnaire/triage-intake",
+        "status": "completed",
+        "subject": {"reference": "Patient/demo-patient-6"},
+        "authored": "2026-06-08T13:45:00Z",
+        "item": [
+          {"linkId": "chief-complaint", "text": "What's bothering you today?", "answer": [{"valueString": "A sharp pain low down on the right side of my belly that keeps getting worse."}]},
+          {"linkId": "onset", "text": "When did it start, and how has it changed?", "answer": [{"valueString": "Since last night. It started around my belly button, then moved down to the right and got sharper."}]},
+          {"linkId": "severity", "text": "How bad is it right now?", "answer": [{"valueString": "6 out of 10"}]},
+          {"linkId": "associated-symptoms", "text": "Are you noticing any of these as well?", "answer": [{"valueString": "Nausea"}]},
+          {"linkId": "history", "text": "Has this happened before, or any recent illness or injury?", "answer": [{"valueString": "Never had anything like this. No surgeries."}]},
+          {"linkId": "self-treatment", "text": "Have you tried anything for it yet?", "answer": [{"valueString": "Took ibuprofen, barely touched it. I haven't eaten because I feel sick."}]}
+        ]
+      }
+    },
+    {
+      "fullUrl": "ServiceRequest/demo-case6-sr",
+      "request": {"method": "PUT", "url": "ServiceRequest/demo-case6-sr"},
+      "resource": {
+        "resourceType": "ServiceRequest",
+        "id": "demo-case6-sr",
+        "status": "active",
+        "intent": "proposal",
+        "priority": "urgent",
+        "code": {"coding": [{"system": "http://snomed.info/sct", "code": "310861008", "display": "Referral to urgent care clinic"}], "text": "Referral to urgent care clinic"},
+        "subject": {"reference": "Patient/demo-patient-6"},
+        "encounter": {"reference": "Encounter/demo-case6-enc"},
+        "authoredOn": "2026-06-08T13:45:00Z",
+        "reasonCode": [{"text": "Migratory right lower quadrant abdominal pain"}],
+        "note": [
+          {"text": "HPI: 28-year-old man with around 18 hours of abdominal pain that began periumbilically and migrated to the right lower quadrant, now sharp and worsening (6/10), with nausea and anorexia and a low-grade temperature (37.8 C). The classic migratory pattern with right lower quadrant localisation raises concern for appendicitis and warrants prompt clinical assessment."},
+          {"text": "Action: Attend an urgent care clinic or emergency department today for examination and assessment for appendicitis."},
+          {"text": "Action: Do not eat or drink until you have been assessed, in case surgery is needed."},
+          {"text": "Action: Avoid further anti-inflammatory painkillers until reviewed."},
+          {"text": "Red flag: migratory right lower quadrant pain (possible appendicitis)"},
+          {"text": "Guideline: 0.86|Acute Abdominal Pain Triage (uc-abdo-001)|Severe abdominal pain, especially right lower quadrant pain with fever or guarding, may indicate appendicitis and requires urgent evaluation. Pain accompanied by vomiting blood, black stools, or rigid abdomen is an emergency."},
+          {"text": "QR: demo-case6-qr"}
+        ]
+      }
+    },
+
+    {
+      "fullUrl": "Patient/demo-patient-7",
+      "request": {"method": "PUT", "url": "Patient/demo-patient-7"},
+      "resource": {
+        "resourceType": "Patient",
+        "id": "demo-patient-7",
+        "name": [{"family": "Foster", "given": ["Liam"]}],
+        "gender": "male",
+        "birthDate": "2021-02-14"
+      }
+    },
+    {
+      "fullUrl": "Observation/demo-obs-temp-7",
+      "request": {"method": "PUT", "url": "Observation/demo-obs-temp-7"},
+      "resource": {
+        "resourceType": "Observation",
+        "id": "demo-obs-temp-7",
+        "status": "final",
+        "subject": {"reference": "Patient/demo-patient-7"},
+        "effectiveDateTime": "2026-06-08T16:30:00Z",
+        "code": {"text": "Body temperature", "coding": [{"system": "http://loinc.org", "code": "8310-5", "display": "Body temperature"}]},
+        "valueQuantity": {"value": 38.3, "unit": "Cel"}
+      }
+    },
+    {
+      "fullUrl": "Encounter/demo-case7-enc",
+      "request": {"method": "PUT", "url": "Encounter/demo-case7-enc"},
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "demo-case7-enc",
+        "status": "finished",
+        "class": {"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "VR", "display": "virtual"},
+        "type": [{"coding": [{"system": "http://snomed.info/sct", "code": "11429006", "display": "Consultation"}], "text": "Triage consultation"}],
+        "subject": {"reference": "Patient/demo-patient-7"},
+        "period": {"start": "2026-06-08T16:30:00Z", "end": "2026-06-08T16:30:00Z"},
+        "reasonCode": [{"text": "Triage intake QuestionnaireResponse/demo-case7-qr"}]
+      }
+    },
+    {
+      "fullUrl": "QuestionnaireResponse/demo-case7-qr",
+      "request": {"method": "PUT", "url": "QuestionnaireResponse/demo-case7-qr"},
+      "resource": {
+        "resourceType": "QuestionnaireResponse",
+        "id": "demo-case7-qr",
+        "questionnaire": "Questionnaire/triage-intake",
+        "status": "completed",
+        "subject": {"reference": "Patient/demo-patient-7"},
+        "authored": "2026-06-08T16:30:00Z",
+        "item": [
+          {"linkId": "chief-complaint", "text": "What's bothering you today?", "answer": [{"valueString": "My 5-year-old has had a fever and keeps tugging at his right ear and saying it hurts."}]},
+          {"linkId": "onset", "text": "When did it start, and how has it changed?", "answer": [{"valueString": "Two days ago. The fever comes down with medicine but keeps coming back."}]},
+          {"linkId": "severity", "text": "How bad is it right now?", "answer": [{"valueString": "4 out of 10"}]},
+          {"linkId": "associated-symptoms", "text": "Are you noticing any of these as well?", "answer": [{"valueString": "None of these"}]},
+          {"linkId": "history", "text": "Has this happened before, or any recent illness or injury?", "answer": [{"valueString": "He's had a couple of ear infections before. Otherwise healthy, eating a bit less but drinking fine."}]},
+          {"linkId": "self-treatment", "text": "Have you tried anything for it yet?", "answer": [{"valueString": "Children's paracetamol, which settles him for a few hours."}]}
+        ]
+      }
+    },
+    {
+      "fullUrl": "ServiceRequest/demo-case7-sr",
+      "request": {"method": "PUT", "url": "ServiceRequest/demo-case7-sr"},
+      "resource": {
+        "resourceType": "ServiceRequest",
+        "id": "demo-case7-sr",
+        "status": "active",
+        "intent": "proposal",
+        "priority": "routine",
+        "code": {"coding": [{"system": "http://snomed.info/sct", "code": "306206005", "display": "Referral to general practitioner"}], "text": "Referral to general practitioner"},
+        "subject": {"reference": "Patient/demo-patient-7"},
+        "encounter": {"reference": "Encounter/demo-case7-enc"},
+        "authoredOn": "2026-06-08T16:30:00Z",
+        "reasonCode": [{"text": "Fever and ear pain in a young child"}],
+        "note": [
+          {"text": "HPI: 5-year-old boy with two days of intermittent fever (38.3 C) responsive to antipyretics and right-sided ear pain with ear-tugging, on a background of previous ear infections. He remains well-hydrated, alert, and without red-flag features. The picture is consistent with acute otitis media, which warrants GP examination to confirm and consider whether antibiotics are needed."},
+          {"text": "Action: Book a GP appointment in the next 24-48 hours for ear examination."},
+          {"text": "Action: Continue children's paracetamol or ibuprofen at weight-appropriate doses for fever and pain, and keep offering fluids."},
+          {"text": "Action: Seek urgent care if he becomes drowsy or difficult to wake, develops a non-blanching rash, neck stiffness, swelling or redness behind the ear, or stops drinking."},
+          {"text": "Guideline: 0.81|Low-Grade Fever Triage (gp-fever-002)|Low-grade fever (38 to 39 C) without red-flag symptoms, lasting under 3 days, in an otherwise healthy patient, can typically be managed with rest, fluids, and antipyretics."},
+          {"text": "QR: demo-case7-qr"}
+        ]
+      }
     }
   ]
 }

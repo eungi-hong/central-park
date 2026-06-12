@@ -1,8 +1,31 @@
 # Triage Park
 
-**A conversational FHIR triage assistant.** A patient answers a short intake interview; an LLM-backed agent reads their FHIR record, retrieves matching triage guidelines by vector search, and produces a clinician handoff — a triage level (self-care / see-GP / urgent-care / ED) with a cited rationale. Every interview and its outcome are written back to FHIR, and a clinician reviews them in a worklist.
+**Triage Park automates the pre-checkup.** Every visit starts with the same manual work — take the patient's history, cross-check their record, and judge how urgent it is. Triage Park does that first pass for you: the patient answers a short intake interview, an LLM-backed agent reads their FHIR record and retrieves matching triage guidelines by vector search, and the clinician opens a ready-made handoff — a triage level (self-care / see-GP / urgent-care / ED) with a cited rationale. Every interview and its outcome is written back to FHIR.
 
 Built for the [InterSystems Programming Contest: AI Agents for FHIR](https://openexchange.intersystems.com/contest/46).
+
+---
+
+## Contest bonuses
+
+The [contest bonuses](https://community.intersystems.com/post/technology-bonuses-intersystems-programming-contest-ai-agents-fhir) this submission targets, with where each is earned. **Legend:** ✅ done · 🔜 planned.
+
+| Bonus | Points | Status | Where |
+| --- | --- | --- | --- |
+| Implement suggested task | 5 | ✅ | Conversational FHIR triage assistant — a suggested contest topic |
+| InterSystems FHIR Server usage | 2 | ✅ | Native IRIS for Health FHIR R4 endpoint — reads context, writes 5 resource types |
+| Vector Search usage | 4 | ✅ | `VECTOR(float, 1536)` guideline corpus queried with `VECTOR_COSINE` |
+| LLM AI or LangChain usage | 3 | ✅ | Five-node LangGraph state machine + structured LLM reasoning |
+| Docker container usage | 2 | ✅ | `docker compose up --build` boots all three services |
+| ZPM Package deployment | 2 | ✅ | `module.xml` manifest for IPM deployment |
+| Online Demo | 2 | 🔜 | Cloud-hosted instance |
+| Implement InterSystems Community Idea | 4 | ✅ | Implements [TTTC — *The Tool That Cares*](https://ideas.intersystems.com/ideas/DPI-I-283) (Community Opportunity) |
+| First Article on Developer Community | 2 | ✅ | Build write-up on the Developer Community |
+| Second Article on DC | 1 | ✅ | Second write-up / translation on the Developer Community |
+| First Time Contribution | 3 | ✅ | First InterSystems Open Exchange submission |
+| Video on YouTube | 9 | ✅ | [Walkthrough](https://youtu.be/g6undsoEDms) published; 2 more on channel (+6) |
+
+**Secured: 31 points** — up to **39** with the online demo (+2) and two more videos (+6).
 
 ---
 
@@ -36,9 +59,9 @@ Once seeding finishes, the console shows three example cases (self-care, see-GP,
 
 ---
 
-## Screenshots
+## Demo
 
-The patient interviews, the agent triages, and the clinician reviews — the three surfaces of the flow:
+**▶ [Watch the walkthrough](https://youtu.be/g6undsoEDms)** — the patient interviews, the agent triages, and the clinician reviews.
 
 | Patient intake interview (`/intake`) | Clinician console (`/`) |
 | --- | --- |
@@ -134,9 +157,12 @@ Seeded automatically at agent startup: the agent waits for the FHIR endpoint, th
 | **Marcus Reeves** (`demo-patient-1`) | 53, HTN / hyperlipidemia / T2DM, cardiac-risk-loaded | — (run the chest-tightness interview) |
 | **Priya Nair** | 34, no chronic conditions | Self-care — sore throat |
 | **Walter Boateng** | 70, COPD | See-GP — productive cough |
+| **Liam Foster** | 5, parent-reported, prior ear infections | See-GP — fever and ear pain (otitis media) |
+| **Eleanor Whitfield** | 72, type 2 diabetes | Urgent-care — dysuria with flank pain and fever (pyelonephritis) |
+| **Daniel Osei** | 28, no chronic conditions | Urgent-care — migratory right-lower-quadrant pain (possible appendicitis) |
 | **Sofia Marchetti** | 44, asthma | Emergency — acute breathlessness |
 
-Marcus is deliberately cardiac-risk-loaded so a chest-tightness scenario exercises real reasoning over his FHIR record.
+The seeded cases span all four triage levels — self-care, see-GP, urgent-care, and emergency — across a range of ages and presentations. Marcus is deliberately cardiac-risk-loaded so a chest-tightness scenario exercises real reasoning over his FHIR record.
 
 ---
 
