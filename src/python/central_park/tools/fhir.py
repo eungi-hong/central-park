@@ -517,25 +517,41 @@ def _summary_display(r: dict, resource_type: str) -> str:
     return r.get("id", "")
 
 
-def fhir_search(resource_type: str, params: dict, count: int = 20) -> dict:
+def fhir_search(resource_type: str, params: dict, count: int = 50, contains: str = "") -> dict:
     """Read-only FHIR search over an allow-listed resource type.
+
+    Robust against the FHIR server's quirks: drops unsupported `:modifier`
+    params (IRIS rejects e.g. `code:text`), retries without params on a 4xx
+    rather than erroring, and applies an optional case-insensitive `contains`
+    post-filter on the result display so free-text name queries always work.
 
     Returns {total, results: [{id, type, display}]}. Raises ValueError for a
     resource type outside QUERYABLE_RESOURCES.
     """
     if resource_type not in QUERYABLE_RESOURCES:
         raise ValueError(f"resource type {resource_type!r} is not queryable")
-    clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
-    with _client() as c:
-        resp = c.get(f"/{resource_type}", params={**clean, "_count": str(count)})
-        resp.raise_for_status()
-    bundle = resp.json()
+    # IRIS does not support parameter modifiers like `code:text`; drop them.
+    clean = {k: v for k, v in (params or {}).items() if v not in (None, "") and ":" not in k}
+
+    def _do(p: dict) -> httpx.Response:
+        with _client() as c:
+            return c.get(f"/{resource_type}", params={**p, "_count": str(count)})
+
+    resp = _do(clean)
+    if resp.status_code >= 400 and clean:
+        # A bad param shouldn't fail the whole query; fall back to a broad search
+        # (often combined with a `contains` filter below) instead of erroring.
+        resp = _do({})
+    resp.raise_for_status()
+
     rows = [
         {"id": r.get("id", ""), "type": resource_type, "display": _summary_display(r, resource_type)}
-        for r in _entries(bundle)
+        for r in _entries(resp.json())
     ]
-    total = bundle.get("total")
-    return {"total": total if total is not None else len(rows), "results": rows}
+    if contains:
+        needle = contains.lower()
+        rows = [r for r in rows if needle in r["display"].lower()]
+    return {"total": len(rows), "results": rows}
 
 
 def create_care_plan(patient_id: str, title: str, activities: list[str]) -> str:

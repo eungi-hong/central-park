@@ -4,7 +4,7 @@
 
 [![Live demo](https://img.shields.io/badge/live_demo-online-2ea44f)](https://triagepark.78-47-167-98.sslip.io/) [![Why](https://img.shields.io/badge/video-why_triage_park-orange)](https://youtu.be/3hqf62btWYQ) [![Walkthrough](https://img.shields.io/badge/video-walkthrough-red)](https://youtu.be/GeOe1DwS50I) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · Built for the [InterSystems Programming Contest: AI Agents for FHIR](https://openexchange.intersystems.com/contest/46)
 
-Every visit starts with the same manual work: take the patient's history, cross-check their record, judge how urgent it is. Triage Park does that first pass for you, as a coordinated team of specialist agents on InterSystems IRIS. A patient answers a short adaptive intake interview; a LangGraph triage agent reads their FHIR record and runs a tool-using reasoning loop over guidelines retrieved by vector search; a deterministic safety agent screens for medication and allergy interactions; a reviewer agent grounds the citations and can escalate; and a clinician opens a ready-made handoff (a triage level: self-care, see-GP, urgent-care, or ED) with a cited rationale and the full reasoning trail. The clinician can then ask a read-only copilot anything about the case. Every interview and outcome is written back to FHIR as standard R4 resources.
+Every visit starts with the same manual work: take the patient's history, cross-check their record, judge how urgent it is. Triage Park does that first pass for you, as a coordinated team of specialist agents on InterSystems IRIS. A patient answers a short adaptive intake interview in their own language; a LangGraph triage agent reads their FHIR record and runs a tool-using reasoning loop over guidelines retrieved by vector search; a deterministic safety agent screens for medication and allergy interactions; a reviewer agent grounds the citations and can escalate; and a clinician opens a ready-made handoff (a triage level: self-care, see-GP, urgent-care, or ED) with a cited rationale and the full reasoning trail. The clinician can then ask a read-only copilot about the case, run the agent toolbox, view cohort analytics, or query FHIR in natural language. Every interview and outcome is written back to FHIR as standard R4 resources.
 
 It implements the contest's suggested **Conversational FHIR Triage Assistant**, and the agents are called inside a real IRIS Interoperability production. A REST business service dispatches to a triage business operation that raises `Ens.AlertRequest` on escalation, so every triage is a traceable message in Visual Trace rather than a side-channel API call.
 
@@ -16,13 +16,13 @@ Triage is one of the most contested ideas in this contest. A few things set this
 
 - **Three layered safety mechanisms, every one of them one-directional.** They can only raise acuity, never lower it. A deterministic red-flag gate runs before any LLM call and short-circuits can't-miss emergencies (stroke signs, airway compromise, anaphylaxis, major haemorrhage, syncope, suicidal ideation) straight to ED. Above it, an agentic reasoning loop commits a triage. Above that, a self-critique verifier grounds the citations and may escalate but is forbidden from downgrading. Patient safety does not depend on an LLM getting it right in one shot.
 - **A real agent, not a one-shot pipeline.** The reasoner runs a bounded tool-using loop: it decides what extra evidence it needs (a refined guideline search, a specific vital or lab) and gathers it before committing. The loop is capped and falls back to a single structured call, so it always resolves.
-- **An adaptive intake interview.** Instead of a fixed form, the agent picks each next question from what it has already heard plus the patient's FHIR risk factors, and stops once it can triage confidently. A cardiac-risk-loaded patient reporting chest symptoms gets asked about exertion and radiation; a sore throat does not.
+- **An adaptive, multilingual intake interview.** Instead of a fixed form, the agent picks each next question from what it has already heard plus the patient's FHIR risk factors, in the patient's chosen language, and stops once it can triage confidently. A cardiac-risk-loaded patient reporting chest symptoms gets asked about exertion and radiation; a sore throat does not.
 - **A deterministic medication-interaction agent.** Before reasoning, a non-LLM safety agent cross-references the patient's active medications and allergies against the complaint (anticoagulant + bleeding, ACE-inhibitor + angioedema, NSAID + GI bleed, allergy exposure) and writes findings as FHIR `DetectedIssue` resources. Findings can only raise the triage level.
 - **A read-only clinician copilot.** From any case, a clinician can ask the agent free-text questions ("why ED?", "any interactions with their warfarin?") and get answers grounded on the FHIR record and cited guidelines. It cannot change a triage or write to the record, so it is safe to put in front of clinicians.
 - **Explainable by construction.** Every case persists the reasoning trail (which agents ran, what tools the triage agent called, the reviewer's verdict), reconstructed in the console from FHIR alone. Nothing is a black box.
 - **The agent lives in the platform.** It is an Interoperability business operation. Every triage flows through `Ens.MessageHeader` and is visible in Visual Trace, which is exactly the "AI agent called in an interoperability FHIR solution" the contest asks for.
 - **Embeddings run server-side in IRIS.** The agent sends raw text, and IRIS computes embeddings via `%Embedding.OpenAI` (AI Hub) and runs HNSW-indexed `VECTOR_COSINE` search. This follows the platform's intended AI-Hub pattern.
-- **Full FHIR write-back, not only reads.** Every interview persists five resource types (`QuestionnaireResponse`, `Encounter`, `ServiceRequest`, coded `Observation`s, `Communication`). The clinician console reconstructs an entire past case from FHIR alone, with no LLM re-run.
+- **Full FHIR write-back, not only reads.** The agents persist eight resource types (`QuestionnaireResponse`, `Encounter`, `ServiceRequest`, coded `Observation`s, `DetectedIssue`, `Task`, `CarePlan`, `Communication`). The clinician console reconstructs an entire past case from FHIR alone, with no LLM re-run.
 - **One command, then a live URL.** `docker compose up --build` boots all three services, or you can skip the clone entirely and open the [hosted demo](https://triagepark.78-47-167-98.sslip.io/).
 
 ---
@@ -33,7 +33,7 @@ Triage Park is a team of specialist agents, coordinated by a LangGraph state mac
 
 | Agent | Type | What it does |
 | --- | --- | --- |
-| **Intake agent** | LLM | Runs the adaptive interview, choosing each next question from prior answers + the FHIR record (3–7 questions, always terminates) |
+| **Intake agent** | LLM | Runs the adaptive, multilingual interview, choosing each next question from prior answers + the FHIR record (3–7 questions, always terminates) |
 | **Safety / interaction agent** | Deterministic | Screens medications + allergies against the complaint; writes `DetectedIssue`s; raises acuity only |
 | **Red-flag gate** | Deterministic | Short-circuits can't-miss emergencies straight to ED before any LLM call |
 | **Triage reasoning agent** | LLM (tool loop) | Bounded ReAct loop: fetches more guidelines / observations / the risk score, then commits a triage |
@@ -47,6 +47,9 @@ Triage Park is a team of specialist agents, coordinated by a LangGraph state mac
 | **Cohort agent** | Deterministic | Population view: runs risk + gaps across every patient and ranks them with aggregates |
 | **NL→FHIR query agent** | LLM | Translates a plain-language question into a validated, read-only FHIR search and runs it |
 | **Clinician copilot** | LLM (tool loop) | Read-only, grounded Q&A about a case in the console |
+| **Orchestrator** | LLM (supervisor) | Routes a plain-language request to the right specialist agent(s) and chains several in one request, then synthesizes one answer |
+
+A supervisor orchestrator sits over the specialist agents: it classifies a clinician's request and dispatches to the right one, and can chain several (for example "summarize, check risk, and flag care gaps" runs summary → risk → gaps and synthesizes the result). Each specialist keeps its own depth, so routing does not flatten the triage agent's tool loop, the deterministic safety floor, or the self-critique reviewer.
 
 Triage is the flagship, but it is one capability among many: the same FHIR-grounded, deterministically-safe core powers risk stratification, preventive-care gap detection, result follow-up, care planning, summarization, lab explanation, population analytics, natural-language FHIR querying, and a clinician copilot, all inside one IRIS Interoperability production.
 
@@ -95,8 +98,8 @@ Once seeding finishes, the console shows six example cases spanning all four tri
 
 Two front doors share one FHIR backend.
 
-- **Patient intake** (`/intake`) is a first-person, adaptive interview. It opens with the patient's main concern, then the agent chooses each following question from the answers so far plus the patient's FHIR record, stopping when it has enough to triage. Answers are saved to FHIR as a `QuestionnaireResponse`, and the patient gets a plain-language next step. If the agent is unreachable, intake falls back to a fixed question set so it never stalls.
-- **Clinician console** (`/`) has three surfaces: a **Worklist** of triaged cases (with caseload KPIs), a population **Cohort** view ranking every patient by risk with open care gaps, and an **Explore** view for natural-language FHIR queries. Opening a case shows the patient's record, transcript, assessment and cited guidelines, detected interactions, the multi-agent reasoning trail, an **Acknowledge** action, the full **agent toolbox** (risk, gaps, follow-up, summary, labs, care plan), and a read-only **copilot**.
+- **Patient intake** (`/intake`) is a first-person, adaptive interview in the patient's chosen language (English, Spanish, Chinese, French, Arabic). It opens with the patient's main concern, then the agent chooses each following question from the answers so far plus the patient's FHIR record, stopping when it has enough to triage. Answers are saved to FHIR as a `QuestionnaireResponse`, and the patient gets a plain-language next step. If the agent is unreachable, intake falls back to a fixed question set so it never stalls.
+- **Clinician console** (`/`) has four surfaces: a **Worklist** of triaged cases (with caseload KPIs), a **Cohort** analytics view (risk distribution, care gaps grouped by type, top conditions), an **Explore** view for natural-language FHIR queries, and an **Assistant** that routes a request across the specialist agents. Opening a case shows the patient's record, transcript, assessment and cited guidelines, detected interactions, the multi-agent reasoning trail, an **Acknowledge** action, the full **agent toolbox** (risk, gaps, follow-up, summary, labs, care plan), and a read-only **copilot**.
 
 ---
 
@@ -136,7 +139,7 @@ The red-flag scope is deliberately narrow: only presentations that warrant the E
 
 ### The adaptive interview
 
-Intake is agentic too. Rather than a fixed form, the agent picks each next question from the answers so far plus the patient's FHIR record, and stops once it can triage confidently. The flow is bounded so it always terminates: it asks **between 3 and 7 questions**, may not stop before the minimum, and is hard-capped at the maximum. A cardiac-risk-loaded patient reporting chest symptoms gets asked about exertion and radiation; a simple sore throat stops early. Each step is one POST to `/api/interview/next`; if the agent is unreachable the UI falls back to a fixed question set so intake never stalls.
+Intake is agentic too. Rather than a fixed form, the agent picks each next question from the answers so far plus the patient's FHIR record, **in the patient's chosen language**, and stops once it can triage confidently. The flow is bounded so it always terminates: it asks **between 3 and 7 questions**, may not stop before the minimum, and is hard-capped at the maximum. A cardiac-risk-loaded patient reporting chest symptoms gets asked about exertion and radiation; a simple sore throat stops early. Each step is one POST to `/api/interview/next`; if the agent is unreachable the UI falls back to a fixed question set so intake never stalls.
 
 ---
 
@@ -162,7 +165,7 @@ Intake is agentic too. Rather than a fixed form, the agent picks each next quest
    └───────────────────┼─────────────────────────────────┘
                         │ POST /run · /interview · /interview/next · /copilot
                         │      · /summary · /labs · /gaps · /risk · /careplan
-                        │      · /followup · /query   ·   GET /cohort
+                        │      · /followup · /query · /orchestrate  ·  GET /cohort
         central-park-agent (FastAPI + LangGraph)
           gather_context → check_safety → retrieve_guidelines →
           validate_red_flags → reason (tool loop) → verify → escalate
@@ -183,11 +186,11 @@ Three services and one external dependency (OpenAI). The agent is invoked throug
 
 | Capability | How Triage Park uses it |
 | --- | --- |
-| **FHIR R4** | Reads patient context; writes `QuestionnaireResponse`, `Encounter`, `ServiceRequest`, coded `Observation`s, and `Communication` |
+| **FHIR R4** | Reads patient context; writes 8 resource types (`QuestionnaireResponse`, `Encounter`, `ServiceRequest`, coded `Observation`s, `DetectedIssue`, `Task`, `CarePlan`, `Communication`); the NL→FHIR agent runs read-only searches |
 | **Vector Search** | `VECTOR(float, 1536)` guideline corpus queried with HNSW-indexed `VECTOR_COSINE` |
 | **AI Hub** | `%Embedding.Config` + `%Embedding.OpenAI` embed guidelines and queries inside IRIS; SSL config installed at boot |
 | **Interoperability** | Production with a REST inbox business service, a triage agent business operation, and `Ens.AlertRequest` on urgent cases, with every triage visible in Visual Trace |
-| **LLM / LangGraph** | A multi-agent platform: the triage state machine (context → safety screen → red-flag gate → tool-using reason loop → reviewer → escalate), adaptive intake, clinician copilot, patient summary, lab explainer, gaps-in-care, result follow-up, care planning, risk workbench, cohort analytics, and NL→FHIR query |
+| **LLM / LangGraph** | A multi-agent platform under a supervisor orchestrator: the triage state machine (context → safety screen → red-flag gate → tool-using reason loop → reviewer → escalate), adaptive intake, clinician copilot, patient summary, lab explainer, gaps-in-care, result follow-up, care planning, risk workbench, cohort analytics, and NL→FHIR query |
 | **IntegratedML** | `CREATE MODEL` / `TRAIN MODEL` AutoML risk model served via `PREDICT` at `/risk/predict`, consulted by the triage agent as a tool (gated by `CP_ENABLE_ML`; see Architecture note) |
 | **Docker** | `docker compose up --build` boots all three services |
 | **IPM / ZPM** | `module.xml` manifest for one-line deployment |
@@ -216,9 +219,9 @@ The [contest bonuses](https://community.intersystems.com/post/technology-bonuses
 | Bonus | Points | Where |
 | --- | --- | --- |
 | Implement a suggested task | 5 | **Conversational FHIR Triage Assistant**, suggested topic #10 |
-| InterSystems FHIR Server usage | 2 | Native IRIS for Health FHIR R4 endpoint; reads context, writes 5 resource types |
+| InterSystems FHIR Server usage | 2 | Native IRIS for Health FHIR R4 endpoint; reads context, writes 8 resource types, read-only NL→FHIR search |
 | Vector Search usage | 4 | `VECTOR(float, 1536)` corpus queried with `VECTOR_COSINE` |
-| LLM AI / LangChain usage | 3 | Multi-agent LangGraph platform: tool-using reason loop, self-critique reviewer, adaptive intake, and a read-only clinician copilot |
+| LLM AI / LangChain usage | 3 | Multi-agent LangGraph platform under a supervisor orchestrator: tool-using reason loop, self-critique reviewer, adaptive multilingual intake, copilot, and 9+ specialist agents |
 | Docker container usage | 2 | `docker compose up --build` boots all three services |
 | ZPM (IPM) package deployment | 2 | `module.xml` manifest |
 | Online Demo | 2 | [triagepark.78-47-167-98.sslip.io](https://triagepark.78-47-167-98.sslip.io/) |
@@ -239,7 +242,7 @@ The [contest bonuses](https://community.intersystems.com/post/technology-bonuses
 ├─ ui/                      # React SPA, clinician console (/) + patient intake (/intake)
 ├─ agent/                   # Dockerfile for the FastAPI + LangGraph sidecar
 ├─ src/
-│  ├─ python/central_park/  # Agents: triage graph, reasoning loop, interview, copilot, summary, labs, gaps, followup, careplan, cohort, query; tools (FHIR · vector · safety · risk · escalate)
+│  ├─ python/central_park/  # Agents: orchestrator, triage graph, reasoning loop, interview, copilot, summary, labs, gaps, followup, careplan, cohort, query; tools (FHIR · vector · safety · risk · escalate)
 │  ├─ python/tests/         # Unit tests: red-flag gate, safety agent, reasoning loop, reviewer, interview, risk
 │  └─ cls/CentralPark/      # ObjectScript: FHIR install, REST dispatch, interop production, IntegratedML (ML.cls)
 ├─ iris-config/             # Boot script + demo seed bundles (patients, questionnaire)
@@ -310,7 +313,11 @@ curl -X POST http://localhost:8001/careplan -H 'Content-Type: application/json' 
 
 # Population analytics + natural-language FHIR query
 curl http://localhost:8001/cohort
-curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' -d '{"question":"patients with active conditions"}'
+curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' -d '{"question":"patients with diabetes"}'
+
+# Orchestrator: one request routed + chained across specialist agents
+curl -X POST http://localhost:8001/orchestrate -H 'Content-Type: application/json' \
+  -d '{"patient_id":"demo-patient-1","message":"Summarize this patient, check readmission risk, and flag care gaps."}'
 
 # Run the unit tests: red-flag gate, safety agent, reasoning loop, reviewer, interview, risk fallback
 docker compose exec agent python -m pytest tests/ -q

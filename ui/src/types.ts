@@ -96,18 +96,19 @@ export interface LabsResult {
   overall: string;
 }
 
-export interface CohortPatient {
-  patient_id: string;
-  name: string;
-  risk_band: string;
-  risk_score: number;
-  risk_method: string;
-  gaps: number;
-}
-
 export interface CohortResult {
-  patients: CohortPatient[];
-  aggregates: { total: number; high: number; moderate: number; low: number; open_gaps: number };
+  aggregates: {
+    total: number;
+    high: number;
+    moderate: number;
+    low: number;
+    open_gaps: number;
+    avg_score: number;
+  };
+  risk_distribution: { band: string; count: number }[];
+  gaps_by_type: { title: string; count: number }[];
+  top_conditions: { display: string; count: number }[];
+  highest_risk: { patient_id: string; name: string; risk_band: string; risk_score: number }[];
 }
 
 export interface QueryResult {
@@ -128,6 +129,11 @@ export interface CarePlanResult {
 export interface FollowupResult {
   findings: { observation: string; value: string; concern: string; priority: string }[];
   task_ids: string[];
+}
+
+export interface OrchestrateResult {
+  answer: string;
+  steps: { agent: string; args: Record<string, unknown>; result: unknown }[];
 }
 
 // One row in the clinician worklist, derived from a FHIR ServiceRequest

@@ -3,12 +3,13 @@ import { ArrowLeft, ArrowRight, Check, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { QUESTIONS, SEED_QUESTION, toQuestion, type Question } from "@/data/questions";
+import { QUESTIONS, seedQuestion, toQuestion, type Language, type Question } from "@/data/questions";
 import { fetchNextQuestion } from "@/api";
 import type { QA } from "@/types";
 
 interface Props {
   patientId: string;
+  language?: Language;
   onComplete: (qa: QA[]) => void;
   onCancel: () => void;
 }
@@ -26,10 +27,10 @@ const emptyDraft = (): Draft => ({ text: "", scale: null, choices: [] });
 // question after that comes from POST /api/interview/next, which reasons over
 // the answers so far plus the patient's FHIR record. If the agent is
 // unreachable we fall back to the fixed QUESTIONS set so intake never stalls.
-export function AdaptiveInterviewScreen({ patientId, onComplete, onCancel }: Props) {
+export function AdaptiveInterviewScreen({ patientId, language = "English", onComplete, onCancel }: Props) {
   // Questions answered so far, the question on screen now, and its draft.
   const [answered, setAnswered] = useState<QA[]>([]);
-  const [question, setQuestion] = useState<Question>(SEED_QUESTION);
+  const [question, setQuestion] = useState<Question>(() => seedQuestion(language));
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [loading, setLoading] = useState(false);
   // Once the agent path fails we walk the remaining static questions instead.
@@ -88,7 +89,7 @@ export function AdaptiveInterviewScreen({ patientId, onComplete, onCancel }: Pro
 
     setLoading(true);
     try {
-      const result = await fetchNextQuestion(patientId, nextAnswered);
+      const result = await fetchNextQuestion(patientId, nextAnswered, language);
       if (result.done || !result.question) {
         onComplete(nextAnswered);
         return;

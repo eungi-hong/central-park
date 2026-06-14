@@ -38,24 +38,27 @@ def run_query(question: str) -> dict:
     parsed = _loads(get_provider().complete(system=_PROMPT, messages=[{"role": "user", "content": question}]))
     resource_type = parsed.get("resource_type", "")
     params = parsed.get("params", {}) or {}
+    contains = (parsed.get("contains") or "").strip()
     explanation = parsed.get("explanation", "")
 
     if resource_type not in QUERYABLE_RESOURCES:
         return {
             "resource_type": resource_type,
             "params": params,
+            "contains": contains,
             "explanation": explanation,
             "total": 0,
             "results": [],
             "error": f"I can only query: {', '.join(sorted(QUERYABLE_RESOURCES))}.",
         }
     try:
-        found = fhir_search(resource_type, params)
+        found = fhir_search(resource_type, params, contains=contains)
     except Exception as exc:
         _log.warning("run_query: search failed (%s)", exc)
         return {
             "resource_type": resource_type,
             "params": params,
+            "contains": contains,
             "explanation": explanation,
             "total": 0,
             "results": [],
@@ -64,6 +67,7 @@ def run_query(question: str) -> dict:
     return {
         "resource_type": resource_type,
         "params": params,
+        "contains": contains,
         "explanation": explanation,
         "total": found["total"],
         "results": found["results"],

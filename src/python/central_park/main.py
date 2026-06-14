@@ -21,6 +21,7 @@ from central_park.followup import run_followup
 from central_park.gaps import find_gaps
 from central_park.interview import next_question
 from central_park.labs import explain_labs
+from central_park.orchestrator import orchestrate
 from central_park.query import run_query
 from central_park.summary import summarize
 from central_park.tools import create_tasks, get_patient_context, risk
@@ -102,6 +103,7 @@ class QAItem(BaseModel):
 class NextQuestionRequest(BaseModel):
     patient_id: str
     answers: list[QAItem] = []
+    language: str = "English"
 
 
 class NextQuestionResponse(BaseModel):
@@ -125,6 +127,11 @@ class PatientRequest(BaseModel):
 
 class QueryRequest(BaseModel):
     question: str
+
+
+class OrchestrateRequest(BaseModel):
+    message: str
+    patient_id: str | None = None
 
 
 class SummaryRequest(BaseModel):
@@ -175,6 +182,7 @@ def next_question_endpoint(req: NextQuestionRequest) -> dict:
     return next_question(
         patient_id=req.patient_id,
         answers=[a.model_dump() for a in req.answers],
+        language=req.language,
     )
 
 
@@ -232,3 +240,9 @@ def query_endpoint(req: QueryRequest) -> dict:
 def cohort_endpoint() -> dict:
     """Cohort agent: population-level risk + care-gap aggregation, ranked."""
     return assess_cohort()
+
+
+@app.post("/orchestrate")
+def orchestrate_endpoint(req: OrchestrateRequest) -> dict:
+    """Multi-agent orchestrator: route + chain specialist agents for one request."""
+    return orchestrate(message=req.message, patient_id=req.patient_id)

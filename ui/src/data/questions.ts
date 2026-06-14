@@ -101,6 +101,48 @@ export const QUESTIONS: readonly Question[] = [
 // (no round-trip), then hands control to the agent for every following question.
 export const SEED_QUESTION: Question = QUESTIONS[0];
 
+// Languages offered at intake. The agent writes every following question in the
+// chosen language; the opening question is translated here so the very first
+// screen is already localised.
+export const LANGUAGES = ["English", "Español", "中文", "Français", "العربية"] as const;
+export type Language = (typeof LANGUAGES)[number];
+
+const SEED_BY_LANGUAGE: Record<string, { prompt: string; help: string; placeholder: string }> = {
+  English: {
+    prompt: "What's bothering you today?",
+    help: "Describe what you're feeling, in your own words.",
+    placeholder: "e.g. My chest feels tight when I walk upstairs",
+  },
+  "Español": {
+    prompt: "¿Qué le molesta hoy?",
+    help: "Describa lo que siente, con sus propias palabras.",
+    placeholder: "p. ej. Siento opresión en el pecho al subir escaleras",
+  },
+  "中文": {
+    prompt: "您今天哪里不舒服？",
+    help: "请用自己的话描述您的感受。",
+    placeholder: "例如：上楼时感到胸闷",
+  },
+  "Français": {
+    prompt: "Qu'est-ce qui vous gêne aujourd'hui ?",
+    help: "Décrivez ce que vous ressentez, avec vos propres mots.",
+    placeholder: "ex. J'ai une oppression dans la poitrine en montant les escaliers",
+  },
+  "العربية": {
+    prompt: "ما الذي يزعجك اليوم؟",
+    help: "صف ما تشعر به بكلماتك الخاصة.",
+    placeholder: "مثال: أشعر بضيق في صدري عند صعود الدرج",
+  },
+};
+
+// The opening question, localised to the chosen language. The chief-complaint
+// question is always a text question, so a TextQuestion is safe to build here.
+export function seedQuestion(language: string): TextQuestion {
+  const t = SEED_BY_LANGUAGE[language] ?? SEED_BY_LANGUAGE.English;
+  const base = QUESTIONS[0] as TextQuestion;
+  return { ...base, prompt: t.prompt, help: t.help, placeholder: t.placeholder };
+}
+
 // Convert an agent-proposed question (snake_case, from /api/interview/next)
 // into the camelCase Question the interview UI renders. Missing fields fall
 // back to safe defaults so a sparse payload still renders.

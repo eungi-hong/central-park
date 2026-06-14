@@ -8,6 +8,7 @@ import type {
   Handoff,
   LabsResult,
   NextQuestionResult,
+  OrchestrateResult,
   PatientRecord,
   PatientSummary,
   QA,
@@ -121,13 +122,14 @@ export async function createQuestionnaireResponse(
 export async function fetchNextQuestion(
   patientId: string,
   answers: QA[],
+  language = "English",
 ): Promise<NextQuestionResult> {
   let resp: Response;
   try {
     resp = await fetch(`${AGENT_BASE}/interview/next`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ patient_id: patientId, answers }),
+      body: JSON.stringify({ patient_id: patientId, answers, language }),
     });
   } catch {
     throw new ApiError("agent-unreachable", "Cannot reach the triage agent.");
@@ -178,6 +180,9 @@ export const runFollowup = (patientId: string) =>
 
 export const runNlQuery = (question: string) =>
   agentPost<QueryResult>("/query", { question });
+
+export const orchestrate = (message: string, patientId?: string) =>
+  agentPost<OrchestrateResult>("/orchestrate", { message, patient_id: patientId ?? null });
 
 export async function fetchCohort(): Promise<CohortResult> {
   let resp: Response;

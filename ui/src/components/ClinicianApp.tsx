@@ -1,18 +1,20 @@
 import { useState } from "react";
-import { Activity, ExternalLink, Inbox, Search, Users } from "lucide-react";
+import { Activity, ExternalLink, Inbox, Search, Sparkles, Users } from "lucide-react";
 import { WorklistScreen } from "@/components/WorklistScreen";
 import { CohortView } from "@/components/CohortView";
 import { ExploreView } from "@/components/ExploreView";
+import { AssistantView } from "@/components/AssistantView";
 import { CaseDetailScreen } from "@/components/CaseDetailScreen";
 import { cn } from "@/lib/utils";
 import type { TriageQueueItem } from "@/types";
 
-type View = "worklist" | "cohort" | "explore";
+type View = "worklist" | "cohort" | "explore" | "assistant";
 
 const NAV: { id: View; label: string; icon: typeof Inbox }[] = [
   { id: "worklist", label: "Worklist", icon: Inbox },
   { id: "cohort", label: "Cohort", icon: Users },
   { id: "explore", label: "Explore", icon: Search },
+  { id: "assistant", label: "Assistant", icon: Sparkles },
 ];
 
 // The clinician console at "/". Three surfaces — the per-case worklist, the
@@ -76,8 +78,10 @@ export function ClinicianApp() {
           <WorklistScreen onOpen={setSelected} />
         ) : view === "cohort" ? (
           <CohortView />
-        ) : (
+        ) : view === "explore" ? (
           <ExploreView />
+        ) : (
+          <AssistantView />
         )}
       </main>
     </div>

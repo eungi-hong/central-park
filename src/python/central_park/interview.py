@@ -96,12 +96,14 @@ def _normalize_question(q: dict, asked_link_ids: set[str]) -> dict | None:
     return out
 
 
-def next_question(patient_id: str, answers: list[dict]) -> dict:
+def next_question(patient_id: str, answers: list[dict], language: str = "English") -> dict:
     """Decide the next intake question, or that the interview is complete.
 
     `answers` is the list of {link_id, question, answer} gathered so far (the
-    client sends the fixed opening complaint as the first entry). Returns
-    {"done": True, "question": None} or {"done": False, "question": {...}}.
+    client sends the fixed opening complaint as the first entry). `language` is
+    the patient's chosen language; question prompts and helper text are written
+    in it (link ids and the option keywords stay canonical for FHIR coding).
+    Returns {"done": True, "question": None} or {"done": False, "question": {...}}.
     """
     asked = {a.get("link_id", "") for a in answers}
 
@@ -124,6 +126,7 @@ def next_question(patient_id: str, answers: list[dict]) -> dict:
             "questions_asked": len(answers),
             "min_questions": MIN_QUESTIONS,
             "max_questions": MAX_QUESTIONS,
+            "language": language or "English",
         },
         ensure_ascii=False,
     )

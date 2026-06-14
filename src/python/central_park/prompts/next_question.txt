@@ -8,6 +8,7 @@ You are given a JSON object with keys:
   questions_asked  — how many questions have been answered
   min_questions    — you may not declare the interview done before this many
   max_questions    — the interview will be force-stopped at this many
+  language         — the patient's language. Write the visible text ("prompt", "help", "short", "placeholder", and any choice "options") in THIS language. Keep "link_id" values canonical (kebab-case English) so the record codes consistently.
 
 Decide the single most informative next question to ask, OR declare the interview complete once you have enough to triage confidently.
 
