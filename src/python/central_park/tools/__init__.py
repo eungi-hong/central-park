@@ -1,4 +1,5 @@
 from central_park.tools.fhir import (
+    create_detected_issues,
     create_encounter,
     create_observations,
     create_service_request,
@@ -8,8 +9,11 @@ from central_park.tools.fhir import (
 )
 from central_park.tools.vector import search_guidelines
 from central_park.tools.escalate import create_alert
+from central_park.tools import safety
+from central_park.tools import risk
 
 __all__ = [
+    "create_detected_issues",
     "create_encounter",
     "create_observations",
     "create_service_request",
@@ -18,4 +22,6 @@ __all__ = [
     "post_questionnaire_response",
     "search_guidelines",
     "create_alert",
+    "safety",
+    "risk",
 ]

@@ -28,7 +28,7 @@ import logging
 import pathlib
 
 from central_park.llm import LLMProvider
-from central_park.tools import search_guidelines
+from central_park.tools import risk, search_guidelines
 
 _log = logging.getLogger("central_park.reasoning")
 
@@ -140,6 +140,8 @@ def reason_loop(
             result: object = _tool_search_guidelines(args, retrieved)
         elif action == "get_observations":
             result = _tool_get_observations(args, patient_context)
+        elif action == "get_risk_score":
+            result = risk.get_risk_score(patient_context)
         else:
             result = {"error": f"unknown tool {action!r}"}
 

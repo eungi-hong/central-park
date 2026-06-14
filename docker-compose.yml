@@ -17,6 +17,10 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       IRIS_USERNAME: ${IRIS_USERNAME:-_SYSTEM}
       IRIS_PASSWORD: ${IRIS_PASSWORD:-SYS}
+      # IntegratedML risk model. Off by default: AutoML trains via Embedded
+      # Python, which is unstable on ARM64 (same reason the agent is a sidecar)
+      # and would hang boot. Set to 1 on x86 hosts to train + serve it.
+      CP_ENABLE_ML: ${CP_ENABLE_ML:-0}
     volumes:
       # Source bind-mounts for in-place edits during development.
       # Reload changed ObjectScript classes inside the container with:

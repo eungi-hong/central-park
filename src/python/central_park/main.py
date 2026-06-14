@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from central_park.agent import run, run_interview
+from central_park.copilot import answer_question
 from central_park.interview import next_question
 from central_park.seed_module import (
     seed_demo_patients,
@@ -69,10 +70,14 @@ class RunResponse(BaseModel):
     summary: str | None
     citations: list[dict]
     red_flags: list[str] = []
+    detected_issues: list[dict] = []
+    tool_trace: list[dict] = []
+    verifier_note: str = ""
     communication_id: str | None
     encounter_id: str | None = None
     service_request_id: str | None = None
     observation_ids: list[str] = []
+    detected_issue_ids: list[str] = []
 
 
 class InterviewRequest(BaseModel):
@@ -96,6 +101,16 @@ class NextQuestionResponse(BaseModel):
     question: dict | None = None
 
 
+class CopilotRequest(BaseModel):
+    patient_id: str
+    question: str
+
+
+class CopilotResponse(BaseModel):
+    answer: str
+    citations: list[dict] = []
+
+
 class HandoffResponse(BaseModel):
     triage_level: str | None
     chief_complaint: str | None
@@ -103,10 +118,12 @@ class HandoffResponse(BaseModel):
     red_flags: list[str]
     recommended_actions: list[str]
     citations: list[dict]
+    detected_issues: list[dict] = []
     questionnaire_response_id: str | None
     encounter_id: str | None = None
     service_request_id: str | None = None
     observation_ids: list[str] = []
+    detected_issue_ids: list[str] = []
 
 
 @app.get("/health")
@@ -138,3 +155,9 @@ def next_question_endpoint(req: NextQuestionRequest) -> dict:
         patient_id=req.patient_id,
         answers=[a.model_dump() for a in req.answers],
     )
+
+
+@app.post("/copilot", response_model=CopilotResponse)
+def copilot_endpoint(req: CopilotRequest) -> dict:
+    """Clinician copilot: read-only, grounded Q&A about one patient."""
+    return answer_question(patient_id=req.patient_id, question=req.question)

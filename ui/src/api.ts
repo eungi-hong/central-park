@@ -131,6 +131,28 @@ export async function fetchNextQuestion(
   return (await resp.json()) as NextQuestionResult;
 }
 
+// Clinician copilot: ask a read-only, grounded question about one patient.
+export async function askCopilot(
+  patientId: string,
+  question: string,
+): Promise<{ answer: string; citations: Citation[] }> {
+  let resp: Response;
+  try {
+    resp = await fetch(`${AGENT_BASE}/copilot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ patient_id: patientId, question }),
+    });
+  } catch {
+    throw new ApiError("agent-unreachable", "Cannot reach the triage agent.");
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    throw new ApiError("agent-http", "The copilot returned an error.", resp.status, detail);
+  }
+  return (await resp.json()) as { answer: string; citations: Citation[] };
+}
+
 export async function runInterview(
   patientId: string,
   questionnaireResponseId: string,
@@ -405,15 +427,21 @@ function parseHandoffNotes(notes: Record<string, any>[]): {
   recommended_actions: string[];
   red_flags: string[];
   citations: Citation[];
+  detected_issues: { severity: string; detail: string }[];
+  trace: string[];
+  verifier_note: string;
   qr_id: string | null;
   acknowledged_at: string | null;
 } {
   let hpi = "";
   let qr_id: string | null = null;
   let acknowledged_at: string | null = null;
+  let verifier_note = "";
   const recommended_actions: string[] = [];
   const red_flags: string[] = [];
   const citations: Citation[] = [];
+  const detected_issues: { severity: string; detail: string }[] = [];
+  const trace: string[] = [];
 
   for (const note of notes) {
     const text = (note.text as string) ?? "";
@@ -422,7 +450,13 @@ function parseHandoffNotes(notes: Record<string, any>[]): {
     else if (text.startsWith("Red flag: ")) red_flags.push(text.slice(10));
     else if (text.startsWith("QR: ")) qr_id = text.slice(4);
     else if (text.startsWith("Acknowledged: ")) acknowledged_at = text.slice(14);
-    else if (text.startsWith("Guideline: ")) {
+    else if (text.startsWith("Trace: ")) trace.push(text.slice(7));
+    else if (text.startsWith("Verifier: ")) verifier_note = text.slice(10);
+    else if (text.startsWith("Interaction: ")) {
+      const rest = text.slice(13);
+      const sep = rest.indexOf("|");
+      if (sep >= 0) detected_issues.push({ severity: rest.slice(0, sep), detail: rest.slice(sep + 1) });
+    } else if (text.startsWith("Guideline: ")) {
       const rest = text.slice(11);
       const sep = rest.indexOf("|");
       if (sep >= 0) {
@@ -433,7 +467,17 @@ function parseHandoffNotes(notes: Record<string, any>[]): {
       }
     }
   }
-  return { hpi, recommended_actions, red_flags, citations, qr_id, acknowledged_at };
+  return {
+    hpi,
+    recommended_actions,
+    red_flags,
+    citations,
+    detected_issues,
+    trace,
+    verifier_note,
+    qr_id,
+    acknowledged_at,
+  };
 }
 
 export async function fetchCaseOutcome(serviceRequestId: string): Promise<CaseOutcome> {

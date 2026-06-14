@@ -20,6 +20,7 @@ XData UrlMap [ XMLNamespace = "http://www.intersystems.com/urlmap" ]
   <Route Url="/vector/seed"               Method="POST" Call="PostVectorSeed"/>
   <Route Url="/vector/search"             Method="POST" Call="PostVectorSearch"/>
   <Route Url="/install/embedding-config"  Method="POST" Call="PostInstallEmbeddingConfig"/>
+  <Route Url="/risk/predict"              Method="POST" Call="PostRiskPredict"/>
 </Routes>
 }
 
@@ -60,6 +61,32 @@ ClassMethod PostTriage() As %Status
 
     // tResp.Body is already JSON from the Python agent.
     write tResp.Body
+    quit $$$OK
+}
+
+/// IntegratedML risk prediction. Body is { "age", "comorbid", "severity" }.
+/// Returns { available, elevated_risk, prediction, probability }. If the model
+/// is not trained (e.g. AutoML unavailable), returns { "available": 0 } so the
+/// agent degrades gracefully.
+ClassMethod PostRiskPredict() As %Status
+{
+    set %response.ContentType = "application/json"
+    set body = {}.%FromJSON(%request.Content)
+    set age = +body.%Get("age")
+    set comorbid = +body.%Get("comorbid")
+    set severity = +body.%Get("severity")
+    set out = {}
+    set sc = ##class(CentralPark.ML).Predict(age, comorbid, severity, .pred, .prob)
+    if $$$ISOK(sc) {
+        set out.available = 1
+        set out.prediction = pred
+        set out."elevated_risk" = $select(pred = "yes": 1, 1: 0)
+        set out.probability = prob
+    } else {
+        set out.available = 0
+        set out.error = $system.Status.GetErrorText(sc)
+    }
+    write out.%ToJSON()
     quit $$$OK
 }
 

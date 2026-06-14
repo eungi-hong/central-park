@@ -54,11 +54,13 @@ from central_park import reasoning
 from central_park.llm import get_provider
 from central_park.tools import (
     create_alert,
+    create_detected_issues,
     create_encounter,
     create_observations,
     create_service_request,
     get_patient_context,
     get_questionnaire_response,
+    safety,
     search_guidelines,
 )
 
@@ -88,6 +90,9 @@ class TriageState(TypedDict, total=False):
     retrieved_sources: list[str]
     tool_trace: list[dict]
     verifier_note: str
+    # Populated by the deterministic safety / interaction agent
+    detected_issues: list[dict]
+    safety_level: str
 
 
 # --- nodes ------------------------------------------------------------------
@@ -95,6 +100,19 @@ class TriageState(TypedDict, total=False):
 
 def _gather_context(state: TriageState) -> dict:
     return {"patient_context": get_patient_context(state["patient_id"])}
+
+
+def _check_safety(state: TriageState) -> dict:
+    """Deterministic safety / interaction agent (see tools/safety.py).
+
+    Cross-references the patient's medications and allergies against the
+    complaint. Findings are one-directional: `safety_level` is a triage floor
+    the rest of the graph can only raise to, never below.
+    """
+    issues = safety.screen(state["patient_context"], state.get("message", ""))
+    if issues:
+        _log.info("check_safety: %d issue(s) %r", len(issues), [i["code"] for i in issues])
+    return {"detected_issues": issues, "safety_level": safety.safety_floor(issues)}
 
 
 def _retrieve_guidelines(state: TriageState) -> dict:
@@ -210,7 +228,12 @@ def _reason(state: TriageState) -> dict:
 
 
 def _verify(state: TriageState) -> dict:
-    """Self-critique pass: ground citations, escalate-only (see reasoning.verify)."""
+    """Self-critique pass: ground citations, escalate-only (see reasoning.verify).
+
+    Also folds in the safety agent's floor: the final level is the more acute of
+    the verified level and `safety_level`, so a detected interaction can raise
+    the triage but a clean screen never lowers it.
+    """
     result = reasoning.verify(
         get_provider(),
         level=state["level"],
@@ -221,9 +244,18 @@ def _verify(state: TriageState) -> dict:
         message=state["message"],
         retrieved_sources=state.get("retrieved_sources", []),
     )
+    level = result["level"]
+    summary = result["summary"]
+    safety_level = state.get("safety_level", "")
+    if safety_level:
+        raised = reasoning._higher(level, safety_level)
+        if raised != level:
+            codes = ", ".join(i["code"] for i in state.get("detected_issues", []))
+            summary = f"{summary} (Safety agent raised to {raised}: {codes}.)".strip()
+            level = raised
     return {
-        "level": result["level"],
-        "summary": result["summary"],
+        "level": level,
+        "summary": summary,
         "citations": result["citations"],
         "verifier_note": result["verifier_note"],
     }
@@ -252,6 +284,7 @@ def _route(state: TriageState) -> Literal["escalate", "end"]:
 def _build_graph():
     g = StateGraph(TriageState)
     g.add_node("gather_context", _gather_context)
+    g.add_node("check_safety", _check_safety)
     g.add_node("retrieve_guidelines", _retrieve_guidelines)
     g.add_node("validate_red_flags", _validate_red_flags)
     g.add_node("reason", _reason)
@@ -259,7 +292,10 @@ def _build_graph():
     g.add_node("escalate", _escalate)
 
     g.add_edge(START, "gather_context")
-    g.add_edge("gather_context", "retrieve_guidelines")
+    # The safety agent runs right after context (it needs meds + allergies) and
+    # before reasoning, so its floor is available to the verifier.
+    g.add_edge("gather_context", "check_safety")
+    g.add_edge("check_safety", "retrieve_guidelines")
     g.add_edge("retrieve_guidelines", "validate_red_flags")
     g.add_conditional_edges(
         "validate_red_flags", _route_red_flags, {"escalate": "escalate", "reason": "reason"}
@@ -275,6 +311,35 @@ def _build_graph():
 _GRAPH = _build_graph()
 
 
+# --- explainability ---------------------------------------------------------
+
+
+def _build_trace(
+    *, detected_issues: list[dict], tool_trace: list[dict], red_flagged: bool
+) -> list[str]:
+    """A short, human-readable record of which agents ran and what they did.
+
+    Persisted on the ServiceRequest so the clinician console can show the
+    reasoning path for a past case without re-running any model.
+    """
+    steps = ["Context agent: pulled the patient's FHIR record"]
+    if detected_issues:
+        codes = ", ".join(i["code"] for i in detected_issues)
+        steps.append(f"Safety agent: flagged {len(detected_issues)} interaction(s) ({codes})")
+    else:
+        steps.append("Safety agent: no medication/allergy interactions")
+    if red_flagged:
+        steps.append("Red-flag gate: matched a can't-miss emergency, escalated to ED")
+        return steps
+    steps.append("Red-flag gate: clear")
+    for t in tool_trace:
+        args = t.get("args") or {}
+        detail = args.get("query") or args.get("contains") or ""
+        steps.append(f"Triage agent: called {t.get('action')}({detail})".strip())
+    steps.append("Reviewer agent: grounded citations and checked the level")
+    return steps
+
+
 # --- shared FHIR persistence ------------------------------------------------
 
 
@@ -286,6 +351,7 @@ def _persist_fhir(
     qr_id: str | None = None,
     qa_transcript: list[dict] | None = None,
     handoff: dict | None = None,
+    detected_issues: list[dict] | None = None,
 ) -> dict:
     """Write the Encounter -> ServiceRequest -> Observation cascade for one triage.
 
@@ -303,6 +369,13 @@ def _persist_fhir(
     encounter_id = ""
     service_request_id = ""
     observation_ids: list[str] = []
+    detected_issue_ids: list[str] = []
+
+    if detected_issues:
+        try:
+            detected_issue_ids = create_detected_issues(patient_id, detected_issues)
+        except Exception as exc:
+            _log.warning("create_detected_issues failed: %s", exc)
 
     try:
         encounter_id = create_encounter(patient_id, qr_id=qr_id)
@@ -329,6 +402,7 @@ def _persist_fhir(
         "encounter_id": encounter_id,
         "service_request_id": service_request_id,
         "observation_ids": observation_ids,
+        "detected_issue_ids": detected_issue_ids,
     }
 
 
@@ -379,6 +453,12 @@ def run_interview(patient_id: str, questionnaire_response_id: str) -> dict:
     hpi = parsed.get("hpi", "")
     citations = parsed.get("citations", [])
 
+    # Deterministic safety / interaction agent over the whole transcript.
+    transcript_text = chief_complaint + " " + " ".join(
+        item.get("answer", "") for item in qa_transcript
+    )
+    detected_issues = safety.screen(patient_context, transcript_text)
+
     # Same self-critique safeguards as the free-text path: ground citations
     # against what was retrieved, then run the escalate-only verifier so the
     # handoff inherits the agent's one-directional safety guarantee.
@@ -397,11 +477,26 @@ def run_interview(patient_id: str, questionnaire_response_id: str) -> dict:
     hpi = verified["summary"]
     citations = verified["citations"]
 
+    # Fold in the safety floor, one-directionally.
+    safety_level = safety.safety_floor(detected_issues)
+    if safety_level:
+        raised = reasoning._higher(triage_level, safety_level)
+        if raised != triage_level:
+            codes = ", ".join(i["code"] for i in detected_issues)
+            hpi = f"{hpi} (Safety agent raised to {raised}: {codes}.)".strip()
+            triage_level = raised
+
+    trace = _build_trace(
+        detected_issues=detected_issues, tool_trace=[], red_flagged=False
+    )
     handoff = {
         "hpi": hpi,
         "recommended_actions": parsed.get("recommended_actions", []),
         "red_flags": parsed.get("red_flags", []),
         "citations": citations,
+        "detected_issues": detected_issues,
+        "trace": trace,
+        "verifier_note": verified.get("verifier_note", ""),
         "qr_id": questionnaire_response_id,
     }
     fhir = _persist_fhir(
@@ -411,6 +506,7 @@ def run_interview(patient_id: str, questionnaire_response_id: str) -> dict:
         qr_id=questionnaire_response_id,
         qa_transcript=qa_transcript,
         handoff=handoff,
+        detected_issues=detected_issues,
     )
 
     return {
@@ -420,10 +516,12 @@ def run_interview(patient_id: str, questionnaire_response_id: str) -> dict:
         "red_flags": handoff["red_flags"],
         "recommended_actions": handoff["recommended_actions"],
         "citations": handoff["citations"],
+        "detected_issues": detected_issues,
         "questionnaire_response_id": questionnaire_response_id,
         "encounter_id": fhir["encounter_id"],
         "service_request_id": fhir["service_request_id"],
         "observation_ids": fhir["observation_ids"],
+        "detected_issue_ids": fhir["detected_issue_ids"],
     }
 
 
@@ -444,6 +542,12 @@ def run(patient_id: str, message: str, conversation_id: str | None = None) -> di
     # The free-text path has no QuestionnaireResponse and no structured Q&A, so
     # the cascade writes an Encounter (no QR linkage) + ServiceRequest and skips
     # Observations. The patient's message stands in as the chief complaint.
+    detected_issues = final.get("detected_issues", [])
+    trace = _build_trace(
+        detected_issues=detected_issues,
+        tool_trace=final.get("tool_trace", []),
+        red_flagged=bool(final.get("red_flags")),
+    )
     fhir = _persist_fhir(
         patient_id,
         final.get("level") or "see-gp",
@@ -452,7 +556,11 @@ def run(patient_id: str, message: str, conversation_id: str | None = None) -> di
             "hpi": final.get("summary", ""),
             "red_flags": final.get("red_flags", []),
             "citations": final.get("citations", []),
+            "detected_issues": detected_issues,
+            "trace": trace,
+            "verifier_note": final.get("verifier_note", ""),
         },
+        detected_issues=detected_issues,
     )
 
     return {
@@ -460,8 +568,12 @@ def run(patient_id: str, message: str, conversation_id: str | None = None) -> di
         "summary": final.get("summary"),
         "citations": final.get("citations", []),
         "red_flags": final.get("red_flags", []),
+        "detected_issues": detected_issues,
+        "tool_trace": final.get("tool_trace", []),
+        "verifier_note": final.get("verifier_note", ""),
         "communication_id": final.get("communication_id", ""),
         "encounter_id": fhir["encounter_id"],
         "service_request_id": fhir["service_request_id"],
         "observation_ids": fhir["observation_ids"],
+        "detected_issue_ids": fhir["detected_issue_ids"],
     }

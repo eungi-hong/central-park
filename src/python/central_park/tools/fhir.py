@@ -273,6 +273,17 @@ def _handoff_notes(handoff: dict) -> list[dict]:
         notes.append({"text": f"Action: {action}"})
     for flag in handoff.get("red_flags") or []:
         notes.append({"text": f"Red flag: {flag}"})
+    for issue in handoff.get("detected_issues") or []:
+        sev = issue.get("severity", "")
+        detail = issue.get("detail", "")
+        # severity|detail — parsed back by the clinician console.
+        notes.append({"text": f"Interaction: {sev}|{detail}"})
+    # Explainability: the agents that ran and the reviewer's verdict, so the
+    # console can show how the triage was reached without re-running anything.
+    for step in handoff.get("trace") or []:
+        notes.append({"text": f"Trace: {step}"})
+    if verifier := (handoff.get("verifier_note") or "").strip():
+        notes.append({"text": f"Verifier: {verifier}"})
     for c in handoff.get("citations") or []:
         source = c.get("source") or c.get("slug") or ""
         snippet = c.get("snippet") or ""
@@ -422,6 +433,36 @@ def create_observations(
                     payload.get("code", {}).get("text"),
                     exc,
                 )
+    return ids
+
+
+def create_detected_issues(patient_id: str, issues: list[dict]) -> list[str]:
+    """Persist safety-agent findings as FHIR DetectedIssue resources.
+
+    Each issue is {code, severity, detail, medication}. Best-effort: a write
+    failure is logged and skipped so a partial footprint never blocks triage.
+    """
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ids: list[str] = []
+    with _client() as c:
+        for issue in issues:
+            payload = {
+                "resourceType": "DetectedIssue",
+                "status": "preliminary",
+                "severity": issue.get("severity", "moderate"),
+                "code": {"text": issue.get("code", "interaction")},
+                "patient": {"reference": f"Patient/{patient_id}"},
+                "identifiedDateTime": now,
+                "detail": issue.get("detail", ""),
+            }
+            try:
+                resp = c.post(
+                    "/DetectedIssue", json=payload, headers={"Content-Type": "application/fhir+json"}
+                )
+                resp.raise_for_status()
+                ids.append(_extract_id(resp, "DetectedIssue"))
+            except Exception as exc:
+                _log.warning("create_detected_issue failed for %s: %s", issue.get("code"), exc)
     return ids
 
 

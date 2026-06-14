@@ -12,6 +12,7 @@ To call a tool:
 Tool catalogue:
 - search_guidelines — retrieve more guideline snippets on a refined query you form after seeing the record. args: {"query": "<focused clinical query>", "k": <optional int, default 5>}
 - get_observations — pull the patient's observations whose label matches a substring (e.g. specific vitals or labs). args: {"contains": "<substring, e.g. blood pressure>"}
+- get_risk_score — ask the IntegratedML model for this patient's elevated-risk prediction (readmission/deterioration). args: {}. The result has "available": if false, the model is offline; ignore it and reason without it. If true, factor "elevated_risk" and "probability" into your decision, leaning more cautious when risk is elevated.
 
 To commit to a final triage:
 {

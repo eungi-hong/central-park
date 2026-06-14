@@ -22,6 +22,7 @@ ClassMethod Run() As %Status
     do ..InstallSSLConfig()
     do ..InstallEmbeddingConfig()
     do ..SeedFHIR()
+    do ##class(CentralPark.ML).Setup()
     do ..StartProduction()
     quit $$$OK
 }

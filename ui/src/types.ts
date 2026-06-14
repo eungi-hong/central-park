@@ -92,6 +92,11 @@ export interface PatientRecord {
 // The triage outcome reconstructed from a stored ServiceRequest — the agent's
 // narrative is parsed back out of the resource's note annotations (written by
 // tools/fhir.py:_handoff_notes), so a past case is fully reviewable.
+export interface DetectedInteraction {
+  severity: string;
+  detail: string;
+}
+
 export interface CaseOutcome {
   triage_level: TriageLevel | string;
   chief_complaint: string;
@@ -99,6 +104,11 @@ export interface CaseOutcome {
   recommended_actions: string[];
   red_flags: string[];
   citations: Citation[];
+  // Safety-agent findings and the multi-agent reasoning trail, parsed back from
+  // the ServiceRequest notes the agent wrote (tools/fhir.py:_handoff_notes).
+  detected_issues: DetectedInteraction[];
+  trace: string[];
+  verifier_note: string;
   qr_id: string | null;
   authored_on: string | null;
   acknowledged_at: string | null;
