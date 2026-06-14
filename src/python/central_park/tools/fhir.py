@@ -574,6 +574,50 @@ def create_care_plan(patient_id: str, title: str, activities: list[str]) -> str:
     return _extract_id(resp, "CarePlan")
 
 
+def patients_with(resource_type: str, params: dict, contains: str = "", count: int = 50) -> dict:
+    """Find the distinct patients who have a matching clinical resource.
+
+    Answers "patients with diabetes" by searching the clinical resource
+    (e.g. Condition) with `_include=...:subject`, filtering matches by the
+    `contains` term, and returning the unique subject Patients. Returns
+    {total, results: [{id, type: "Patient", display}]}.
+    """
+    if resource_type not in QUERYABLE_RESOURCES or resource_type == "Patient":
+        raise ValueError(f"cannot resolve patients via {resource_type!r}")
+    clean = {k: v for k, v in (params or {}).items() if v not in (None, "") and ":" not in k}
+
+    def _do(p: dict) -> httpx.Response:
+        with _client() as c:
+            return c.get(
+                f"/{resource_type}",
+                params={**p, "_include": f"{resource_type}:subject", "_count": str(count)},
+            )
+
+    resp = _do(clean)
+    if resp.status_code >= 400 and clean:
+        resp = _do({})
+    resp.raise_for_status()
+    bundle = resp.json()
+
+    names: dict[str, str] = {}
+    matched_ids: list[str] = []
+    needle = contains.lower()
+    for e in bundle.get("entry", []):
+        r = e.get("resource", {})
+        if r.get("resourceType") == "Patient" and r.get("id"):
+            names[r["id"]] = _trim_patient(r).get("name") or r["id"]
+        else:
+            if needle and needle not in _summary_display(r, r.get("resourceType", resource_type)).lower():
+                continue
+            ref = (r.get("subject") or {}).get("reference", "")
+            pid = ref.split("/")[-1] if ref else ""
+            if pid and pid not in matched_ids:
+                matched_ids.append(pid)
+
+    results = [{"id": pid, "type": "Patient", "display": names.get(pid, pid)} for pid in matched_ids]
+    return {"total": len(results), "results": results}
+
+
 def get_patient_context(patient_id: str) -> PatientContext:
     with _client() as c:
         patient_resp = c.get(f"/Patient/{patient_id}")

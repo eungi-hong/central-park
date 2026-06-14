@@ -6,6 +6,7 @@ Return exactly one JSON object. No prose before or after.
   "resource_type": "<one FHIR resource type>",
   "params": { "<supported fhir search param>": "<value>", ... },
   "contains": "<optional free-text term to match in the result name/label>",
+  "resolve_to": "<optional: set to \"Patient\" to return the patients who have the matching resource>",
   "explanation": "<one sentence describing the query in plain words>"
 }
 
@@ -21,6 +22,8 @@ IMPORTANT — this FHIR server is strict. Use ONLY these supported params:
 
 Do NOT use `:text` or any `:modifier` parameter — they are rejected. Do NOT invent params.
 
-For matching a clinical term by NAME (e.g. "diabetes", "hba1c", "warfarin"), do NOT put it in params. Instead set "contains" to that term: the search runs broad and is then filtered to results whose name contains it. Example: "patients with diabetes" -> resource_type "Condition", params {"clinical-status":"active"}, contains "diabetes".
+For matching a clinical term by NAME (e.g. "diabetes", "hba1c", "warfarin"), do NOT put it in params. Instead set "contains" to that term: the search runs broad and is then filtered to results whose name contains it.
+
+When the user asks for the PATIENTS who have something (e.g. "patients with diabetes", "who is on warfarin"), search the clinical resource that carries it and set "resolve_to": "Patient" so the result is the distinct patients, not the clinical resources. Example: "patients with diabetes" -> {"resource_type":"Condition","params":{"clinical-status":"active"},"contains":"diabetes","resolve_to":"Patient"}. If the user asks for the conditions/medications/results themselves, omit resolve_to.
 
 Keep params minimal and valid. When in doubt, use fewer params and rely on "contains".

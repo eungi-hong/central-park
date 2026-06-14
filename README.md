@@ -10,26 +10,15 @@ It implements the contest's suggested **Conversational FHIR Triage Assistant**, 
 
 ---
 
-## Why Triage Park
+## Contents
 
-Triage is one of the most contested ideas in this contest. A few things set this entry apart:
-
-- **Three layered safety mechanisms, every one of them one-directional.** They can only raise acuity, never lower it. A deterministic red-flag gate runs before any LLM call and short-circuits can't-miss emergencies (stroke signs, airway compromise, anaphylaxis, major haemorrhage, syncope, suicidal ideation) straight to ED. Above it, an agentic reasoning loop commits a triage. Above that, a self-critique verifier grounds the citations and may escalate but is forbidden from downgrading. Patient safety does not depend on an LLM getting it right in one shot.
-- **A real agent, not a one-shot pipeline.** The reasoner runs a bounded tool-using loop: it decides what extra evidence it needs (a refined guideline search, a specific vital or lab) and gathers it before committing. The loop is capped and falls back to a single structured call, so it always resolves.
-- **An adaptive, multilingual intake interview.** Instead of a fixed form, the agent picks each next question from what it has already heard plus the patient's FHIR risk factors, in the patient's chosen language, and stops once it can triage confidently. A cardiac-risk-loaded patient reporting chest symptoms gets asked about exertion and radiation; a sore throat does not.
-- **A deterministic medication-interaction agent.** Before reasoning, a non-LLM safety agent cross-references the patient's active medications and allergies against the complaint (anticoagulant + bleeding, ACE-inhibitor + angioedema, NSAID + GI bleed, allergy exposure) and writes findings as FHIR `DetectedIssue` resources. Findings can only raise the triage level.
-- **A read-only clinician copilot.** From any case, a clinician can ask the agent free-text questions ("why ED?", "any interactions with their warfarin?") and get answers grounded on the FHIR record and cited guidelines. It cannot change a triage or write to the record, so it is safe to put in front of clinicians.
-- **Explainable by construction.** Every case persists the reasoning trail (which agents ran, what tools the triage agent called, the reviewer's verdict), reconstructed in the console from FHIR alone. Nothing is a black box.
-- **The agent lives in the platform.** It is an Interoperability business operation. Every triage flows through `Ens.MessageHeader` and is visible in Visual Trace, which is exactly the "AI agent called in an interoperability FHIR solution" the contest asks for.
-- **Embeddings run server-side in IRIS.** The agent sends raw text, and IRIS computes embeddings via `%Embedding.OpenAI` (AI Hub) and runs HNSW-indexed `VECTOR_COSINE` search. This follows the platform's intended AI-Hub pattern.
-- **Full FHIR write-back, not only reads.** The agents persist eight resource types (`QuestionnaireResponse`, `Encounter`, `ServiceRequest`, coded `Observation`s, `DetectedIssue`, `Task`, `CarePlan`, `Communication`). The clinician console reconstructs an entire past case from FHIR alone, with no LLM re-run.
-- **One command, then a live URL.** `docker compose up --build` boots all three services, or you can skip the clone entirely and open the [hosted demo](https://triagepark.78-47-167-98.sslip.io/).
+[The agents](#the-agents) · [Why Triage Park](#why-triage-park) · [See it](#see-it) · [Quickstart](#quickstart) · [What it does](#what-it-does) · [How the triage agent works](#how-the-triage-agent-works) · [Architecture](#architecture) · [InterSystems features](#intersystems-features-used) · [Contest bonuses](#contest-bonuses) · [Demo data](#demo-data) · [Verify](#verify)
 
 ---
 
 ## The agents
 
-Triage Park is a team of specialist agents, coordinated by a LangGraph state machine and called inside the IRIS Interoperability production. Each does one job well, and the safety-critical ones are deterministic.
+**Fifteen specialist agents, coordinated by a supervisor orchestrator, all called inside one IRIS Interoperability production.** Triage is the flagship; the rest make it a platform. Safety-critical agents are deterministic; judgment-heavy ones are agentic.
 
 | Agent | Type | What it does |
 | --- | --- | --- |
@@ -57,17 +46,33 @@ The three deterministic agents (red-flag gate, safety agent, reviewer's groundin
 
 ---
 
+## Why Triage Park
+
+Breadth alone isn't the point. What sets this entry apart is the depth underneath it:
+
+- **A deterministic safety floor that can only escalate.** Three safety layers (red-flag gate, medication-interaction agent, the reviewer's grounding step) run as non-LLM or one-directional checks. Each can raise acuity, never lower it, so patient safety never depends on a model getting it right in one shot.
+- **Real agentic reasoning, not a one-shot prompt.** The triage agent runs a bounded tool-using loop and a self-critique reviewer that drops hallucinated citations. Most entries call the model once; this one reasons, checks itself, and explains the result.
+- **Platform-native, not bolted on.** Agents run inside a real Interoperability production (every triage is traceable in Visual Trace); embeddings and `VECTOR_COSINE` search run server-side via AI Hub; readmission risk is IntegratedML.
+- **Full FHIR write-back and explainable.** Eight resource types are written back, and the console reconstructs an entire past case, including which agents ran, from FHIR alone, with no LLM re-run.
+- **One command, then a live URL.** `docker compose up --build` boots all three services, or open the [hosted demo](https://triagepark.78-47-167-98.sslip.io/).
+
+---
+
 ## See it
 
 **▶ [Why Triage Park](https://youtu.be/3hqf62btWYQ):** the problem it solves and why the pre-checkup is worth automating. · **▶ [Walkthrough](https://youtu.be/GeOe1DwS50I):** the patient interviews, the agent triages, the clinician reviews. · **[Try the live demo](https://triagepark.78-47-167-98.sslip.io/)** ([patient intake](https://triagepark.78-47-167-98.sslip.io/intake))
 
-| Patient intake interview (`/intake`) | Clinician console (`/`) |
+| Patient intake interview (`/intake`) | Clinician worklist (`/`) |
 | --- | --- |
-| ![Patient intake interview, the adaptive structured intake chat](docs/images/intake-interview.png) | ![Clinician console, the triage worklist](docs/images/clinician-console.png) |
+| ![Patient intake interview, the adaptive multilingual intake chat](docs/images/intake-interview.png) | ![Clinician console worklist with caseload KPI cards](docs/images/clinician-console.png) |
+| Cohort analytics | Assistant (orchestrator) |
+| ![Cohort analytics: risk distribution donut and care gaps grouped by type](docs/images/cohort-analytics.png) | ![Assistant routing and chaining specialist agents for one request](docs/images/assistant.png) |
+| Agent toolbox (per case) | Explore (natural-language FHIR) |
+| ![Per-case agent toolbox: risk, gaps, follow-up, summary, labs, care plan cards](docs/images/agent-toolbox.png) | ![Explore view translating a plain-language question into a FHIR query](docs/images/explore-query.png) |
 
-The clinician handoff is grounded on the patient's FHIR record, with cited guidelines and the IDs of every resource written back:
+The clinician handoff is grounded on the patient's FHIR record, with cited guidelines, detected interactions, the multi-agent reasoning trail, and the IDs of every resource written back:
 
-![Clinician handoff summary with triage level, cited guidelines, and written-back FHIR resource IDs](docs/images/handoff-summary.png)
+![Clinician handoff: triage level, cited guidelines, agent reasoning trail, and written-back FHIR resource IDs](docs/images/handoff-summary.png)
 
 ---
 
@@ -127,6 +132,8 @@ validate_red_flags   ── hard emergency phrase matched ──▶ escalate to 
             └──▶ escalate if urgent-care/ED, else done
 ```
 
+![Safety agent escalating an ACE-inhibitor patient with facial swelling to the ED, with a DetectedIssue interaction banner](docs/images/safety-escalation.png)
+
 `validate_red_flags` runs before any LLM call. A non-negated match on a can't-miss phrase (with a cheap negation guard, so "no slurred speech" does not fire) short-circuits straight to ED escalation and skips the model entirely. It can only escalate, so a missed keyword can never lower a triage level below a matched red flag.
 
 `check_safety` is the deterministic medication-interaction agent. It runs before the LLM, cross-referencing active medications and allergies against the complaint, writes any findings as FHIR `DetectedIssue`s, and sets a triage floor that the rest of the graph can only raise to.
@@ -175,6 +182,8 @@ Intake is agentic too. Rather than a fixed form, the agent picks each next quest
 ```
 
 Three services and one external dependency (OpenAI). The agent is invoked through the IRIS production: `CentralPark.REST.Dispatch` spawns the `RESTInbox` business service, which `SendRequestSync`s to the `TriageAgent` business operation, so every call lands in Visual Trace as an `Ens.MessageHeader`. The LangGraph reasoning itself executes in the Python sidecar over HTTP; see the note below on why.
+
+![IRIS Visual Trace showing a triage as an Ens.MessageHeader flowing through the Interoperability production](docs/images/visual-trace.png)
 
 > **Why a sidecar and not Embedded Python?** The production graph stays first-class either way, because the agent is a real business operation in Visual Trace. But this image's ARM64 Embedded Python build is unstable (Callin `<SYSTEM>` aborts on `import`, broken `_uuid`), so running the LangGraph stack in-process would make the app fail to start on Apple-Silicon hosts. Keeping the reasoner in a sidecar trades the Embedded Python bonus for an app that boots reliably everywhere, which matters for a demo a judge has to run.
 

@@ -114,6 +114,8 @@ export interface CohortResult {
 export interface QueryResult {
   resource_type: string;
   params: Record<string, string>;
+  contains?: string;
+  resolve_to?: string;
   explanation: string;
   total: number;
   results: { id: string; type: string; display: string }[];

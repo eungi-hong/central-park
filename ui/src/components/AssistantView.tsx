@@ -58,10 +58,21 @@ export function AssistantView() {
         </p>
       </div>
 
-      <div className="flex items-center gap-2 text-sm">
-        <label className="text-muted-foreground">Patient</label>
-        <Input value={patientId} onChange={(e) => setPatientId(e.target.value)} className="h-8 w-48 font-mono text-xs" />
-        <span className="text-xs text-muted-foreground">(population questions ignore this)</span>
+      <div className="space-y-1.5 rounded-lg border bg-muted/20 p-3">
+        <div className="flex items-center gap-2 text-sm">
+          <label htmlFor="assistant-patient" className="font-medium">Patient in focus</label>
+          <Input
+            id="assistant-patient"
+            value={patientId}
+            onChange={(e) => setPatientId(e.target.value)}
+            className="h-8 w-44 font-mono text-xs"
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Patient-specific agents (summary, risk, gaps, care plan…) act on this patient.
+          Population questions like "how many patients have diabetes?" search the whole
+          repository and don't use it.
+        </p>
       </div>
 
       <div className="space-y-3 rounded-lg border p-4">

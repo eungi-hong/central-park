@@ -14,7 +14,7 @@ import logging
 import pathlib
 
 from central_park.llm import get_provider
-from central_park.tools import fhir_search
+from central_park.tools import fhir_search, patients_with
 from central_park.tools.fhir import QUERYABLE_RESOURCES
 
 _log = logging.getLogger("central_park.query")
@@ -39,36 +39,24 @@ def run_query(question: str) -> dict:
     resource_type = parsed.get("resource_type", "")
     params = parsed.get("params", {}) or {}
     contains = (parsed.get("contains") or "").strip()
+    # When the user asks for *patients* who have a matching clinical resource,
+    # the agent sets resolve_to "Patient": we search the clinical resource, then
+    # return the distinct subject patients.
+    resolve_to = (parsed.get("resolve_to") or "").strip()
     explanation = parsed.get("explanation", "")
 
+    base = {"resource_type": resource_type, "params": params, "contains": contains,
+            "resolve_to": resolve_to, "explanation": explanation, "total": 0, "results": []}
+
     if resource_type not in QUERYABLE_RESOURCES:
-        return {
-            "resource_type": resource_type,
-            "params": params,
-            "contains": contains,
-            "explanation": explanation,
-            "total": 0,
-            "results": [],
-            "error": f"I can only query: {', '.join(sorted(QUERYABLE_RESOURCES))}.",
-        }
+        return {**base, "error": f"I can only query: {', '.join(sorted(QUERYABLE_RESOURCES))}."}
+
     try:
-        found = fhir_search(resource_type, params, contains=contains)
+        if resolve_to == "Patient" and resource_type != "Patient":
+            found = patients_with(resource_type, params, contains=contains)
+        else:
+            found = fhir_search(resource_type, params, contains=contains)
     except Exception as exc:
         _log.warning("run_query: search failed (%s)", exc)
-        return {
-            "resource_type": resource_type,
-            "params": params,
-            "contains": contains,
-            "explanation": explanation,
-            "total": 0,
-            "results": [],
-            "error": "The query could not be executed against the FHIR server.",
-        }
-    return {
-        "resource_type": resource_type,
-        "params": params,
-        "contains": contains,
-        "explanation": explanation,
-        "total": found["total"],
-        "results": found["results"],
-    }
+        return {**base, "error": "The query could not be executed against the FHIR server."}
+    return {**base, "total": found["total"], "results": found["results"]}

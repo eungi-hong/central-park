@@ -89,6 +89,18 @@ export function ExploreView() {
                   "?" + Object.entries(data.params).map(([k, v]) => `${k}=${v}`).join("&")}
               </span>
             </div>
+            {/* The contains term is a post-filter on the result name, not a FHIR
+                param (IRIS rejects :text), so show it explicitly. */}
+            {data.contains && (
+              <p className="mt-1 font-mono text-xs text-muted-foreground">
+                then filter where name contains "{data.contains}"
+              </p>
+            )}
+            {data.resolve_to === "Patient" && data.resource_type !== "Patient" && (
+              <p className="mt-1 font-mono text-xs text-muted-foreground">
+                then resolve to the distinct patients
+              </p>
+            )}
             {data.explanation && (
               <p className="mt-1 text-xs text-muted-foreground">{data.explanation}</p>
             )}

@@ -7,6 +7,7 @@ from central_park.tools.fhir import (
     create_tasks,
     fhir_search,
     get_patient_context,
+    patients_with,
     get_questionnaire_response,
     post_questionnaire_response,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "create_tasks",
     "fhir_search",
     "get_patient_context",
+    "patients_with",
     "get_questionnaire_response",
     "post_questionnaire_response",
     "search_guidelines",
