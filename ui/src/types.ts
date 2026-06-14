@@ -30,6 +30,30 @@ export interface QA {
   answer: string;
 }
 
+// A question proposed by the adaptive-interview agent (/api/interview/next).
+// snake_case mirrors the backend (central_park/interview.py:_normalize_question);
+// data/questions.ts:toQuestion converts it to the camelCase Question the
+// interview UI renders.
+export interface DynamicQuestion {
+  link_id: string;
+  kind: "text" | "scale" | "choices";
+  short: string;
+  prompt: string;
+  help?: string | null;
+  placeholder?: string | null;
+  min?: number;
+  max?: number;
+  min_label?: string;
+  max_label?: string;
+  options?: string[];
+  none_option?: string;
+}
+
+export interface NextQuestionResult {
+  done: boolean;
+  question: DynamicQuestion | null;
+}
+
 // One row in the clinician worklist, derived from a FHIR ServiceRequest
 // (each triage interview writes one) plus its linked Patient.
 export interface TriageQueueItem {

@@ -14,7 +14,9 @@ It implements the contest's suggested **Conversational FHIR Triage Assistant**, 
 
 Triage is one of the most contested ideas in this contest. A few things set this entry apart:
 
-- **A deterministic safety gate that can only escalate.** Before the LLM runs, a hard-coded screen for can't-miss emergencies (stroke signs, airway compromise, anaphylaxis, major haemorrhage, syncope, suicidal ideation) short-circuits straight to ED. The probabilistic reasoner sits on top of this floor, so a missed keyword can never lower a triage level below a matched emergency. Patient safety does not depend on an LLM getting it right.
+- **Three layered safety mechanisms, every one of them one-directional.** They can only raise acuity, never lower it. A deterministic red-flag gate runs before any LLM call and short-circuits can't-miss emergencies (stroke signs, airway compromise, anaphylaxis, major haemorrhage, syncope, suicidal ideation) straight to ED. Above it, an agentic reasoning loop commits a triage. Above that, a self-critique verifier grounds the citations and may escalate but is forbidden from downgrading. Patient safety does not depend on an LLM getting it right in one shot.
+- **A real agent, not a one-shot pipeline.** The reasoner runs a bounded tool-using loop: it decides what extra evidence it needs (a refined guideline search, a specific vital or lab) and gathers it before committing. The loop is capped and falls back to a single structured call, so it always resolves.
+- **An adaptive intake interview.** Instead of a fixed form, the agent picks each next question from what it has already heard plus the patient's FHIR risk factors, and stops once it can triage confidently. A cardiac-risk-loaded patient reporting chest symptoms gets asked about exertion and radiation; a sore throat does not.
 - **The agent lives in the platform.** It is an Interoperability business operation. Every triage flows through `Ens.MessageHeader` and is visible in Visual Trace, which is exactly the "AI agent called in an interoperability FHIR solution" the contest asks for.
 - **Embeddings run server-side in IRIS.** The agent sends raw text, and IRIS computes embeddings via `%Embedding.OpenAI` (AI Hub) and runs HNSW-indexed `VECTOR_COSINE` search. This follows the platform's intended AI-Hub pattern.
 - **Full FHIR write-back, not only reads.** Every interview persists five resource types (`QuestionnaireResponse`, `Encounter`, `ServiceRequest`, coded `Observation`s, `Communication`). The clinician console reconstructs an entire past case from FHIR alone, with no LLM re-run.
@@ -28,7 +30,7 @@ Triage is one of the most contested ideas in this contest. A few things set this
 
 | Patient intake interview (`/intake`) | Clinician console (`/`) |
 | --- | --- |
-| ![Patient intake interview, the 6-question structured intake chat](docs/images/intake-interview.png) | ![Clinician console, the triage worklist](docs/images/clinician-console.png) |
+| ![Patient intake interview, the adaptive structured intake chat](docs/images/intake-interview.png) | ![Clinician console, the triage worklist](docs/images/clinician-console.png) |
 
 The clinician handoff is grounded on the patient's FHIR record, with cited guidelines and the IDs of every resource written back:
 
@@ -63,14 +65,14 @@ Once seeding finishes, the console shows six example cases spanning all four tri
 
 Two front doors share one FHIR backend.
 
-- **Patient intake** (`/intake`) is a first-person interview: chief complaint, onset, a 1–10 severity scale, a symptom checklist, history, and self-treatment. Answers are saved to FHIR as a `QuestionnaireResponse`, and the patient gets a plain-language next step.
+- **Patient intake** (`/intake`) is a first-person, adaptive interview. It opens with the patient's main concern, then the agent chooses each following question from the answers so far plus the patient's FHIR record, stopping when it has enough to triage. Answers are saved to FHIR as a `QuestionnaireResponse`, and the patient gets a plain-language next step. If the agent is unreachable, intake falls back to a fixed question set so it never stalls.
 - **Clinician console** (`/`) is a worklist of triaged cases, newest first, with urgent cases flagged. Opening a case shows the patient's standing record, the interview transcript, the agent's assessment and cited guidelines, and an **Acknowledge** action for escalated cases (written back to FHIR).
 
 ---
 
 ## The safety gate
 
-A core design choice in Triage Park is that clinical safety is deterministic rather than probabilistic.
+A core design choice in Triage Park is that clinical safety is layered, and every layer is one-directional: each can only raise acuity, never lower it.
 
 ```
 retrieve_guidelines
@@ -78,12 +80,24 @@ retrieve_guidelines
       ▼
 validate_red_flags   ── hard emergency phrase matched ──▶ escalate to ED  (no LLM call)
       │
-      └── clear ──▶ reason (single structured LLM call) ──▶ escalate if urgent-care/ED
+      └── clear
+            │
+            ▼
+        reason   (agentic tool-using loop: fetch more guidelines / observations, then commit)
+            │
+            ▼
+        verify   (self-critique: ground citations, may escalate, never downgrade)
+            │
+            └──▶ escalate if urgent-care/ED, else done
 ```
 
-`validate_red_flags` runs before the LLM. A non-negated match on a can't-miss phrase (with a cheap negation guard, so "no slurred speech" does not fire) short-circuits straight to ED escalation and skips the model entirely. The gate can only escalate and never downgrade, so the LLM missing a keyword cannot lower a triage level below a matched red flag.
+`validate_red_flags` runs before any LLM call. A non-negated match on a can't-miss phrase (with a cheap negation guard, so "no slurred speech" does not fire) short-circuits straight to ED escalation and skips the model entirely. It can only escalate, so a missed keyword can never lower a triage level below a matched red flag.
 
-The scope is deliberately narrow: only presentations that warrant the ED regardless of context. Nuanced complaints such as chest tightness are intentionally not hard-coded, because they need the patient's FHIR risk factors and guideline retrieval to triage correctly, and that reasoning is the LLM's job. The gate is the floor under the reasoner, not a replacement for it. Both paths are covered by unit tests (`src/python/tests/`).
+`reason` is a bounded ReAct-style loop. Each turn the model returns JSON choosing either a tool call (a refined `search_guidelines` query, or `get_observations` to zoom into specific vitals/labs) or a final triage. The loop is capped and falls back to a single structured call if the model never commits, so it always resolves.
+
+`verify` is a self-critique pass over the reasoner's answer. It deterministically drops any citation whose source was not actually retrieved (no hallucinated guidelines reach the clinician), then lets an LLM critic escalate the level when the evidence warrants. The critic is structurally forbidden from downgrading.
+
+The red-flag scope is deliberately narrow: only presentations that warrant the ED regardless of context. Nuanced complaints such as chest tightness are intentionally not hard-coded, because they need the patient's FHIR risk factors and guideline retrieval to triage correctly, and that reasoning is the loop's job. The gate is the floor under the reasoner, not a replacement for it. These paths are covered by unit tests (`src/python/tests/`): the deterministic gate, the escalate-only verifier, and the loop's tool execution and fallback.
 
 ---
 
@@ -109,7 +123,8 @@ The scope is deliberately narrow: only presentations that warrant the ED regardl
                         │ POST /run · /interview
         central-park-agent (FastAPI + LangGraph)
           gather_context → retrieve_guidelines →
-          validate_red_flags → reason → escalate
+          validate_red_flags → reason (tool loop) →
+          verify → escalate
                         │
                   OpenAI (chat)
 ```
@@ -128,7 +143,7 @@ Three services and one external dependency (OpenAI). The agent is invoked throug
 | **Vector Search** | `VECTOR(float, 1536)` guideline corpus queried with HNSW-indexed `VECTOR_COSINE` |
 | **AI Hub** | `%Embedding.Config` + `%Embedding.OpenAI` embed guidelines and queries inside IRIS; SSL config installed at boot |
 | **Interoperability** | Production with a REST inbox business service, a triage agent business operation, and `Ens.AlertRequest` on urgent cases, with every triage visible in Visual Trace |
-| **LLM / LangGraph** | Five-node state machine (gather context → retrieve guidelines → red-flag gate → reason → escalate); single deterministic LLM call returning structured JSON |
+| **LLM / LangGraph** | Six-node state machine (gather context → retrieve guidelines → red-flag gate → agentic tool-using reason loop → self-critique verifier → escalate); plus an adaptive intake interview that picks each next question from the FHIR record |
 | **Docker** | `docker compose up --build` boots all three services |
 | **IPM / ZPM** | `module.xml` manifest for one-line deployment |
 
@@ -155,7 +170,7 @@ The [contest bonuses](https://community.intersystems.com/post/technology-bonuses
 | Implement a suggested task | 5 | **Conversational FHIR Triage Assistant**, suggested topic #10 |
 | InterSystems FHIR Server usage | 2 | Native IRIS for Health FHIR R4 endpoint; reads context, writes 5 resource types |
 | Vector Search usage | 4 | `VECTOR(float, 1536)` corpus queried with `VECTOR_COSINE` |
-| LLM AI / LangChain usage | 3 | Five-node LangGraph state machine + structured LLM reasoning |
+| LLM AI / LangChain usage | 3 | Six-node agentic LangGraph state machine: tool-using reason loop + self-critique verifier, plus an adaptive intake interview |
 | Docker container usage | 2 | `docker compose up --build` boots all three services |
 | ZPM (IPM) package deployment | 2 | `module.xml` manifest |
 | Online Demo | 2 | [triagepark.78-47-167-98.sslip.io](https://triagepark.78-47-167-98.sslip.io/) |
@@ -177,7 +192,7 @@ The [contest bonuses](https://community.intersystems.com/post/technology-bonuses
 ├─ agent/                   # Dockerfile for the FastAPI + LangGraph sidecar
 ├─ src/
 │  ├─ python/central_park/  # Agent: LangGraph graph, tools (FHIR · vector · escalate), seeding
-│  ├─ python/tests/         # Unit tests for the deterministic red-flag gate
+│  ├─ python/tests/         # Unit tests: red-flag gate, reasoning loop, verifier, interview
 │  └─ cls/CentralPark/      # ObjectScript: FHIR install, REST dispatch, interop production
 ├─ iris-config/             # Boot script + demo seed bundles (patients, questionnaire)
 ├─ web/                     # Static assets served by IRIS

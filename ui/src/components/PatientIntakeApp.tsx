@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { Activity } from "lucide-react";
 import { SetupScreen } from "@/components/SetupScreen";
-import { InterviewScreen } from "@/components/InterviewScreen";
+import { AdaptiveInterviewScreen } from "@/components/AdaptiveInterviewScreen";
 import { ProcessingScreen } from "@/components/ProcessingScreen";
 import { IntakeDoneScreen } from "@/components/IntakeDoneScreen";
-import { QUESTIONS } from "@/data/questions";
 import { createQuestionnaireResponse, runInterview, ApiError } from "@/api";
 import type { ProcessStep } from "@/App";
 import type { Handoff, QA } from "@/types";
@@ -70,7 +69,7 @@ export function PatientIntakeApp() {
         {phase === "setup" && <SetupScreen initialId={patientId} onStart={startIntake} />}
 
         {phase === "interview" && (
-          <InterviewScreen questions={QUESTIONS} onComplete={submit} onCancel={reset} />
+          <AdaptiveInterviewScreen patientId={patientId} onComplete={submit} onCancel={reset} />
         )}
 
         {phase === "processing" && (

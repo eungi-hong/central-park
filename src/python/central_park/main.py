@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from central_park.agent import run, run_interview
+from central_park.interview import next_question
 from central_park.seed_module import (
     seed_demo_patients,
     seed_guidelines,
@@ -79,6 +80,22 @@ class InterviewRequest(BaseModel):
     questionnaire_response_id: str
 
 
+class QAItem(BaseModel):
+    link_id: str
+    question: str
+    answer: str
+
+
+class NextQuestionRequest(BaseModel):
+    patient_id: str
+    answers: list[QAItem] = []
+
+
+class NextQuestionResponse(BaseModel):
+    done: bool
+    question: dict | None = None
+
+
 class HandoffResponse(BaseModel):
     triage_level: str | None
     chief_complaint: str | None
@@ -111,4 +128,13 @@ def run_interview_endpoint(req: InterviewRequest) -> dict:
     return run_interview(
         patient_id=req.patient_id,
         questionnaire_response_id=req.questionnaire_response_id,
+    )
+
+
+@app.post("/interview/next", response_model=NextQuestionResponse)
+def next_question_endpoint(req: NextQuestionRequest) -> dict:
+    """Adaptive intake: return the next question to ask, or that we're done."""
+    return next_question(
+        patient_id=req.patient_id,
+        answers=[a.model_dump() for a in req.answers],
     )

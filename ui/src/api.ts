@@ -2,6 +2,7 @@ import type {
   CaseOutcome,
   Citation,
   Handoff,
+  NextQuestionResult,
   PatientRecord,
   QA,
   RecordEntry,
@@ -104,6 +105,30 @@ export async function createQuestionnaireResponse(
     );
   }
   return id;
+}
+
+// Adaptive intake: ask the agent for the next question given the answers so
+// far. The caller falls back to the fixed question set if this throws, so the
+// interview is never blocked by the agent being unreachable.
+export async function fetchNextQuestion(
+  patientId: string,
+  answers: QA[],
+): Promise<NextQuestionResult> {
+  let resp: Response;
+  try {
+    resp = await fetch(`${AGENT_BASE}/interview/next`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ patient_id: patientId, answers }),
+    });
+  } catch {
+    throw new ApiError("agent-unreachable", "Cannot reach the triage agent.");
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    throw new ApiError("agent-http", "The triage agent returned an error.", resp.status, detail);
+  }
+  return (await resp.json()) as NextQuestionResult;
 }
 
 export async function runInterview(

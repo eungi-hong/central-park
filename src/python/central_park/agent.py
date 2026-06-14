@@ -11,24 +11,32 @@
       ▼
     validate_red_flags   <- deterministic safety gate (no LLM call)
       │
-      ├── hard red flag matched  ──────────────▶ escalate ──▶ END
-      └── clear                                       │
-              │                                       │
-              ▼                                       │
-    reason   <- single LLM call, returns structured JSON
-      │                                               │
-      ├── level in {urgent-care, ed}  ──▶ escalate ───┘
-      └── otherwise                          ───────▶ END
+      ├── hard red flag matched  ─────────────────────────────▶ escalate ──▶ END
+      └── clear                                                      │
+              │                                                      │
+              ▼                                                      │
+    reason   <- agentic tool-using loop (ReAct): the model fetches  │
+      │         more guidelines / observations on demand, then      │
+      │         commits to a structured triage                      │
+      ▼                                                              │
+    verify   <- self-critique pass: grounds citations against what  │
+      │         was retrieved and may ESCALATE (never downgrade)     │
+      ├── level in {urgent-care, ed}  ──────────────▶ escalate ──────┘
+      └── otherwise                          ──────────────────────▶ END
 
-validate_red_flags is a deterministic floor under the probabilistic reasoner:
-hard-coded emergency phrases short-circuit straight to ED escalation, skipping
-the LLM entirely. It can only ever *escalate*, never downgrade, so the LLM
-missing a keyword cannot lower the triage level below a matched red flag.
+The agent layers three safety mechanisms, every one of them one-directional
+(they can only raise acuity, never lower it):
 
-Keeping the LLM step itself deterministic (single call, no looping tool use)
-is a v1 choice: it's easier to demo on video, easier to evaluate, easier to add
-guardrails to. A later iteration can branch into a loop with tool-calling if the
-single-shot version turns out to be too brittle on edge cases.
+  * validate_red_flags — a deterministic floor. Hard-coded emergency phrases
+    short-circuit straight to ED before any LLM call, so a missed keyword can
+    never lower the triage level below a matched red flag.
+  * reason — a bounded tool-calling loop (see reasoning.reason_loop). The model
+    decides what extra evidence it needs (refined guideline searches, specific
+    observations) before committing. The loop is capped and falls back to a
+    single structured call, so it always resolves.
+  * verify — a self-critique reviewer (see reasoning.verify). It drops
+    hallucinated citations deterministically and may escalate the level when the
+    evidence warrants, but is forbidden from downgrading.
 """
 
 from __future__ import annotations
@@ -42,6 +50,7 @@ _log = logging.getLogger("central_park.agent")
 
 from langgraph.graph import StateGraph, START, END
 
+from central_park import reasoning
 from central_park.llm import get_provider
 from central_park.tools import (
     create_alert,
@@ -53,9 +62,9 @@ from central_park.tools import (
     search_guidelines,
 )
 
-_PROMPT_PATH = pathlib.Path(__file__).parent / "prompts" / "triage.txt"
-_SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
-
+# The free-text triage path (the /run graph) reasons via reasoning.reason_loop,
+# which owns the agent + single-shot prompts. This module only loads the handoff
+# prompt used by the interview path below.
 _HANDOFF_PROMPT_PATH = pathlib.Path(__file__).parent / "prompts" / "handoff.txt"
 _HANDOFF_PROMPT = _HANDOFF_PROMPT_PATH.read_text(encoding="utf-8")
 
@@ -75,6 +84,10 @@ class TriageState(TypedDict, total=False):
     citations: list[dict]
     red_flags: list[str]
     communication_id: str
+    # Populated by the agentic reasoning loop + verifier
+    retrieved_sources: list[str]
+    tool_trace: list[dict]
+    verifier_note: str
 
 
 # --- nodes ------------------------------------------------------------------
@@ -180,28 +193,39 @@ def _validate_red_flags(state: TriageState) -> dict:
 
 
 def _reason(state: TriageState) -> dict:
-    provider = get_provider()
-    user_payload = json.dumps(
-        {
-            "patient_context": state["patient_context"],
-            "guidelines": state["guidelines"],
-            "message": state["message"],
-        },
-        ensure_ascii=False,
+    """Agentic tool-using reasoning loop (see reasoning.reason_loop)."""
+    result = reasoning.reason_loop(
+        get_provider(),
+        patient_context=state["patient_context"],
+        guidelines=state["guidelines"],
+        message=state["message"],
     )
-    raw = provider.complete(
-        system=_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_payload}],
-    )
-    try:
-        parsed = json.loads(raw.strip().removeprefix("```json").removesuffix("```").strip())
-    except json.JSONDecodeError:
-        _log.warning("_reason: LLM returned non-JSON: %r", raw[:200])
-        parsed = {}
     return {
-        "level": parsed.get("level", "see-gp"),
-        "summary": parsed.get("summary", ""),
-        "citations": parsed.get("citations", []),
+        "level": result["level"],
+        "summary": result["summary"],
+        "citations": result["citations"],
+        "retrieved_sources": result["retrieved_sources"],
+        "tool_trace": result["tool_trace"],
+    }
+
+
+def _verify(state: TriageState) -> dict:
+    """Self-critique pass: ground citations, escalate-only (see reasoning.verify)."""
+    result = reasoning.verify(
+        get_provider(),
+        level=state["level"],
+        summary=state["summary"],
+        citations=state.get("citations", []),
+        patient_context=state["patient_context"],
+        guidelines=state["guidelines"],
+        message=state["message"],
+        retrieved_sources=state.get("retrieved_sources", []),
+    )
+    return {
+        "level": result["level"],
+        "summary": result["summary"],
+        "citations": result["citations"],
+        "verifier_note": result["verifier_note"],
     }
 
 
@@ -231,6 +255,7 @@ def _build_graph():
     g.add_node("retrieve_guidelines", _retrieve_guidelines)
     g.add_node("validate_red_flags", _validate_red_flags)
     g.add_node("reason", _reason)
+    g.add_node("verify", _verify)
     g.add_node("escalate", _escalate)
 
     g.add_edge(START, "gather_context")
@@ -239,7 +264,10 @@ def _build_graph():
     g.add_conditional_edges(
         "validate_red_flags", _route_red_flags, {"escalate": "escalate", "reason": "reason"}
     )
-    g.add_conditional_edges("reason", _route, {"escalate": "escalate", "end": END})
+    # reason -> verify -> route. The verifier may escalate, so the routing
+    # decision is made on its (possibly raised) level, not the reasoner's.
+    g.add_edge("reason", "verify")
+    g.add_conditional_edges("verify", _route, {"escalate": "escalate", "end": END})
     g.add_edge("escalate", END)
     return g.compile()
 
@@ -348,12 +376,32 @@ def run_interview(patient_id: str, questionnaire_response_id: str) -> dict:
         parsed = {}
     triage_level = parsed.get("triage_level", "see-gp")
     chief_complaint = parsed.get("chief_complaint", "")
+    hpi = parsed.get("hpi", "")
+    citations = parsed.get("citations", [])
+
+    # Same self-critique safeguards as the free-text path: ground citations
+    # against what was retrieved, then run the escalate-only verifier so the
+    # handoff inherits the agent's one-directional safety guarantee.
+    retrieved_sources = [g["source"] for g in guidelines]
+    verified = reasoning.verify(
+        provider,
+        level=triage_level,
+        summary=hpi,
+        citations=reasoning.ground_citations(citations, retrieved_sources),
+        patient_context=patient_context,
+        guidelines=guidelines,
+        message=chief_complaint or query,
+        retrieved_sources=retrieved_sources,
+    )
+    triage_level = verified["level"]
+    hpi = verified["summary"]
+    citations = verified["citations"]
 
     handoff = {
-        "hpi": parsed.get("hpi", ""),
+        "hpi": hpi,
         "recommended_actions": parsed.get("recommended_actions", []),
         "red_flags": parsed.get("red_flags", []),
-        "citations": parsed.get("citations", []),
+        "citations": citations,
         "qr_id": questionnaire_response_id,
     }
     fhir = _persist_fhir(

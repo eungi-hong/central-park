@@ -358,9 +358,15 @@ def create_observations(
     by_link = {item["link_id"]: item["answer"] for item in qa_items}
     payloads = []
 
-    # Severity score → LOINC 72514-3
-    # Extract the first integer in the answer and clamp to [1, 10]
+    # Severity score → LOINC 72514-3. The adaptive interview may not use the
+    # reserved "severity" link id, so fall back to any answer that reads like a
+    # 1-10 rating ("7 out of 10"). Extract the first integer and clamp to [1, 10].
     severity_text = by_link.get("severity", "")
+    if not severity_text:
+        severity_text = next(
+            (item["answer"] for item in qa_items if "out of 10" in item.get("answer", "").lower()),
+            "",
+        )
     m = re.search(r"\b(\d+)\b", severity_text)
     if m:
         score = min(10, max(1, int(m.group(1))))
@@ -381,10 +387,9 @@ def create_observations(
             "valueInteger": score,
         })
 
-    # Symptom flags → SNOMED codes
-    symptom_text = (
-        by_link.get("associated-symptoms", "") + " " + by_link.get("chief-complaint", "")
-    ).lower()
+    # Symptom flags → SNOMED codes. Scan every answer (not just the reserved
+    # symptom/complaint link ids) so adaptive free-form follow-ups still code.
+    symptom_text = " ".join(item.get("answer", "") for item in qa_items).lower()
     for keyword, (code, display) in _SYMPTOM_CODES.items():
         if keyword in symptom_text:
             payloads.append({

@@ -1,4 +1,4 @@
-import type { TriageLevel } from "@/types";
+import type { DynamicQuestion, TriageLevel } from "@/types";
 
 // The intake interview the patient answers themselves, on their own device.
 // First-person, plain language. linkIds mirror the seeded FHIR Questionnaire
@@ -96,6 +96,47 @@ export const QUESTIONS: readonly Question[] = [
     placeholder: "e.g. Took paracetamol, didn't help",
   },
 ];
+
+// The fixed opening question. The adaptive interview always asks this first
+// (no round-trip), then hands control to the agent for every following question.
+export const SEED_QUESTION: Question = QUESTIONS[0];
+
+// Convert an agent-proposed question (snake_case, from /api/interview/next)
+// into the camelCase Question the interview UI renders. Missing fields fall
+// back to safe defaults so a sparse payload still renders.
+export function toQuestion(d: DynamicQuestion): Question {
+  const base = {
+    linkId: d.link_id,
+    short: d.short || d.prompt.slice(0, 24),
+    prompt: d.prompt,
+    help: d.help ?? undefined,
+  };
+  if (d.kind === "scale") {
+    return {
+      ...base,
+      kind: "scale",
+      min: d.min ?? 1,
+      max: d.max ?? 10,
+      minLabel: d.min_label ?? "Barely noticeable",
+      maxLabel: d.max_label ?? "Worst imaginable",
+    };
+  }
+  if (d.kind === "choices") {
+    const noneOption = d.none_option ?? "None of these";
+    // The interview UI appends noneOption itself, so strip any echo of it from
+    // the agent's options (case-insensitive) and de-duplicate — otherwise the
+    // patient sees "None of these" twice.
+    const seen = new Set<string>();
+    const options = (d.options ?? []).filter((o) => {
+      const t = o.trim().toLowerCase();
+      if (!t || t === noneOption.toLowerCase() || seen.has(t)) return false;
+      seen.add(t);
+      return true;
+    });
+    return { ...base, kind: "choices", options, noneOption };
+  }
+  return { ...base, kind: "text", placeholder: d.placeholder ?? undefined };
+}
 
 // Triage dispositions. Intentionally no pill/badge styling — severity reads
 // from a colored accent bar + colored label, so the UI stays calm and clinical.
