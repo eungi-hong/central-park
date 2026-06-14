@@ -1,8 +1,11 @@
 from central_park.tools.fhir import (
+    create_care_plan,
     create_detected_issues,
     create_encounter,
     create_observations,
     create_service_request,
+    create_tasks,
+    fhir_search,
     get_patient_context,
     get_questionnaire_response,
     post_questionnaire_response,
@@ -13,10 +16,13 @@ from central_park.tools import safety
 from central_park.tools import risk
 
 __all__ = [
+    "create_care_plan",
     "create_detected_issues",
     "create_encounter",
     "create_observations",
     "create_service_request",
+    "create_tasks",
+    "fhir_search",
     "get_patient_context",
     "get_questionnaire_response",
     "post_questionnaire_response",

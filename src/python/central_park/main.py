@@ -14,8 +14,16 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from central_park.agent import run, run_interview
+from central_park.careplan import draft_care_plan
+from central_park.cohort import assess_cohort
 from central_park.copilot import answer_question
+from central_park.followup import run_followup
+from central_park.gaps import find_gaps
 from central_park.interview import next_question
+from central_park.labs import explain_labs
+from central_park.query import run_query
+from central_park.summary import summarize
+from central_park.tools import create_tasks, get_patient_context, risk
 from central_park.seed_module import (
     seed_demo_patients,
     seed_guidelines,
@@ -111,6 +119,19 @@ class CopilotResponse(BaseModel):
     citations: list[dict] = []
 
 
+class PatientRequest(BaseModel):
+    patient_id: str
+
+
+class QueryRequest(BaseModel):
+    question: str
+
+
+class SummaryRequest(BaseModel):
+    patient_id: str
+    audience: str = "clinician"
+
+
 class HandoffResponse(BaseModel):
     triage_level: str | None
     chief_complaint: str | None
@@ -161,3 +182,53 @@ def next_question_endpoint(req: NextQuestionRequest) -> dict:
 def copilot_endpoint(req: CopilotRequest) -> dict:
     """Clinician copilot: read-only, grounded Q&A about one patient."""
     return answer_question(patient_id=req.patient_id, question=req.question)
+
+
+@app.post("/summary")
+def summary_endpoint(req: SummaryRequest) -> dict:
+    """Patient summary agent: role-aware clinical summary from the FHIR record."""
+    return summarize(patient_id=req.patient_id, audience=req.audience)
+
+
+@app.post("/labs")
+def labs_endpoint(req: PatientRequest) -> dict:
+    """Lab explainer agent: plain-language explanation of recent results."""
+    return explain_labs(patient_id=req.patient_id)
+
+
+@app.post("/gaps")
+def gaps_endpoint(req: PatientRequest) -> dict:
+    """Gaps-in-care agent: open care gaps, written back as FHIR Tasks."""
+    gaps = find_gaps(get_patient_context(req.patient_id))
+    task_ids = create_tasks(req.patient_id, gaps) if gaps else []
+    return {"gaps": gaps, "task_ids": task_ids}
+
+
+@app.post("/risk")
+def risk_endpoint(req: PatientRequest) -> dict:
+    """Readmission/deterioration risk assessment (IntegratedML or heuristic)."""
+    return risk.assess(get_patient_context(req.patient_id))
+
+
+@app.post("/careplan")
+def careplan_endpoint(req: PatientRequest) -> dict:
+    """Care-plan agent: draft a care plan and write a FHIR CarePlan."""
+    return draft_care_plan(patient_id=req.patient_id)
+
+
+@app.post("/followup")
+def followup_endpoint(req: PatientRequest) -> dict:
+    """Abnormal-results follow-up agent: flag out-of-range results, write Tasks."""
+    return run_followup(patient_id=req.patient_id)
+
+
+@app.post("/query")
+def query_endpoint(req: QueryRequest) -> dict:
+    """NL->FHIR query agent: translate a question into a validated FHIR search."""
+    return run_query(question=req.question)
+
+
+@app.get("/cohort")
+def cohort_endpoint() -> dict:
+    """Cohort agent: population-level risk + care-gap aggregation, ranked."""
+    return assess_cohort()

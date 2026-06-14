@@ -38,8 +38,17 @@ Triage Park is a team of specialist agents, coordinated by a LangGraph state mac
 | **Red-flag gate** | Deterministic | Short-circuits can't-miss emergencies straight to ED before any LLM call |
 | **Triage reasoning agent** | LLM (tool loop) | Bounded ReAct loop: fetches more guidelines / observations / the risk score, then commits a triage |
 | **Reviewer agent** | LLM | Self-critique: grounds citations against what was retrieved, may escalate, never downgrades |
-| **Risk agent** | IntegratedML | Reads an in-IRIS AutoML model for readmission/deterioration risk (see note under Architecture) |
+| **Risk workbench** | IntegratedML + heuristic | Readmission/deterioration risk with band, score, and drivers. Uses an in-IRIS AutoML model when enabled, a transparent heuristic otherwise, so it always works (see note under Architecture) |
+| **Gaps-in-care agent** | Deterministic | Flags overdue screenings, vaccinations, and chronic-disease monitoring from age + conditions + results; writes FHIR `Task`s |
+| **Patient summary agent** | LLM | Role-aware (clinician or patient) clinical summary synthesized from the FHIR record |
+| **Lab explainer agent** | LLM | Plain-language, patient-facing explanation of recent results |
+| **Follow-up agent** | Deterministic | Flags out-of-range recent results (BP, HbA1c, glucose, etc.) and writes FHIR `Task`s |
+| **Care-plan agent** | LLM | Drafts a reviewable care plan from the record and writes a FHIR `CarePlan` |
+| **Cohort agent** | Deterministic | Population view: runs risk + gaps across every patient and ranks them with aggregates |
+| **NL→FHIR query agent** | LLM | Translates a plain-language question into a validated, read-only FHIR search and runs it |
 | **Clinician copilot** | LLM (tool loop) | Read-only, grounded Q&A about a case in the console |
+
+Triage is the flagship, but it is one capability among many: the same FHIR-grounded, deterministically-safe core powers risk stratification, preventive-care gap detection, result follow-up, care planning, summarization, lab explanation, population analytics, natural-language FHIR querying, and a clinician copilot, all inside one IRIS Interoperability production.
 
 The three deterministic agents (red-flag gate, safety agent, reviewer's grounding step) are the floor: every one is one-directional and can only raise acuity, so patient safety never rests on an LLM getting it right.
 
@@ -87,7 +96,7 @@ Once seeding finishes, the console shows six example cases spanning all four tri
 Two front doors share one FHIR backend.
 
 - **Patient intake** (`/intake`) is a first-person, adaptive interview. It opens with the patient's main concern, then the agent chooses each following question from the answers so far plus the patient's FHIR record, stopping when it has enough to triage. Answers are saved to FHIR as a `QuestionnaireResponse`, and the patient gets a plain-language next step. If the agent is unreachable, intake falls back to a fixed question set so it never stalls.
-- **Clinician console** (`/`) is a worklist of triaged cases, newest first, with urgent cases flagged. Opening a case shows the patient's standing record, the interview transcript, the agent's assessment and cited guidelines, any detected medication interactions, the multi-agent reasoning trail, an **Acknowledge** action for escalated cases (written back to FHIR), and a read-only **copilot** for asking grounded questions about the case.
+- **Clinician console** (`/`) has three surfaces: a **Worklist** of triaged cases (with caseload KPIs), a population **Cohort** view ranking every patient by risk with open care gaps, and an **Explore** view for natural-language FHIR queries. Opening a case shows the patient's record, transcript, assessment and cited guidelines, detected interactions, the multi-agent reasoning trail, an **Acknowledge** action, the full **agent toolbox** (risk, gaps, follow-up, summary, labs, care plan), and a read-only **copilot**.
 
 ---
 
@@ -152,6 +161,8 @@ Intake is agentic too. Rather than a fixed form, the agent picks each next quest
    │   IntegratedML (AutoML) risk model  ·  /risk/predict │
    └───────────────────┼─────────────────────────────────┘
                         │ POST /run · /interview · /interview/next · /copilot
+                        │      · /summary · /labs · /gaps · /risk · /careplan
+                        │      · /followup · /query   ·   GET /cohort
         central-park-agent (FastAPI + LangGraph)
           gather_context → check_safety → retrieve_guidelines →
           validate_red_flags → reason (tool loop) → verify → escalate
@@ -164,7 +175,7 @@ Three services and one external dependency (OpenAI). The agent is invoked throug
 
 > **Why a sidecar and not Embedded Python?** The production graph stays first-class either way, because the agent is a real business operation in Visual Trace. But this image's ARM64 Embedded Python build is unstable (Callin `<SYSTEM>` aborts on `import`, broken `_uuid`), so running the LangGraph stack in-process would make the app fail to start on Apple-Silicon hosts. Keeping the reasoner in a sidecar trades the Embedded Python bonus for an app that boots reliably everywhere, which matters for a demo a judge has to run.
 
-> **On the IntegratedML risk agent.** The risk model is real IntegratedML: `CentralPark.ML` creates and trains an AutoML model (`CREATE MODEL` / `TRAIN MODEL`) on a synthetic cohort and serves row-level `PREDICT` over `/risk/predict`. AutoML trains via the same Embedded Python runtime, so on the ARM64 demo image it is **disabled by default** (`CP_ENABLE_ML=0`) to keep boot fast and reliable; the triage agent treats `get_risk_score` as an optional tool and degrades gracefully when it is off. Set `CP_ENABLE_ML=1` on an x86 host to train and serve it.
+> **On the risk workbench.** The risk model is real IntegratedML: `CentralPark.ML` creates and trains an AutoML model (`CREATE MODEL` / `TRAIN MODEL`) on a synthetic cohort and serves row-level `PREDICT` over `/risk/predict`. AutoML trains via the same Embedded Python runtime, so on the ARM64 demo image it is **disabled by default** (`CP_ENABLE_ML=0`); set `CP_ENABLE_ML=1` on an x86 host to train and serve it. So the workbench is useful everywhere, the risk agent **falls back to a transparent heuristic** (age + comorbidity + severity) when AutoML is off, and labels which method produced each score. The triage agent likewise treats the model as an optional `get_risk_score` tool and degrades gracefully.
 
 ---
 
@@ -176,7 +187,7 @@ Three services and one external dependency (OpenAI). The agent is invoked throug
 | **Vector Search** | `VECTOR(float, 1536)` guideline corpus queried with HNSW-indexed `VECTOR_COSINE` |
 | **AI Hub** | `%Embedding.Config` + `%Embedding.OpenAI` embed guidelines and queries inside IRIS; SSL config installed at boot |
 | **Interoperability** | Production with a REST inbox business service, a triage agent business operation, and `Ens.AlertRequest` on urgent cases, with every triage visible in Visual Trace |
-| **LLM / LangGraph** | A multi-agent state machine (context → safety screen → red-flag gate → agentic tool-using reason loop → self-critique reviewer → escalate), an adaptive intake interview, and a read-only clinician copilot |
+| **LLM / LangGraph** | A multi-agent platform: the triage state machine (context → safety screen → red-flag gate → tool-using reason loop → reviewer → escalate), adaptive intake, clinician copilot, patient summary, lab explainer, gaps-in-care, result follow-up, care planning, risk workbench, cohort analytics, and NL→FHIR query |
 | **IntegratedML** | `CREATE MODEL` / `TRAIN MODEL` AutoML risk model served via `PREDICT` at `/risk/predict`, consulted by the triage agent as a tool (gated by `CP_ENABLE_ML`; see Architecture note) |
 | **Docker** | `docker compose up --build` boots all three services |
 | **IPM / ZPM** | `module.xml` manifest for one-line deployment |
@@ -190,6 +201,8 @@ Three services and one external dependency (OpenAI). The agent is invoked throug
 | `ServiceRequest` | every triage | triage level (SNOMED), chief complaint, the agent's narrative (HPI, actions, red flags, cited guidelines), and clinician acknowledgement as notes |
 | `Observation` | interview | LOINC severity score + SNOMED symptom flags parsed from answers |
 | `DetectedIssue` | interaction found | a medication/allergy interaction flagged by the safety agent, with severity |
+| `Task` | care gap / abnormal result | an overdue screening, vaccination, or result follow-up item (gaps-in-care + follow-up agents) |
+| `CarePlan` | care plan drafted | the care-plan agent's reviewable plan with activities |
 | `Communication` | urgent/ED | the escalation alert |
 
 Persisting the narrative on the `ServiceRequest` is what lets the console reconstruct a full past case from FHIR alone, with no LLM re-run.
@@ -226,7 +239,7 @@ The [contest bonuses](https://community.intersystems.com/post/technology-bonuses
 ├─ ui/                      # React SPA, clinician console (/) + patient intake (/intake)
 ├─ agent/                   # Dockerfile for the FastAPI + LangGraph sidecar
 ├─ src/
-│  ├─ python/central_park/  # Agents: graph, reasoning loop, interview, copilot, tools (FHIR · vector · safety · risk · escalate)
+│  ├─ python/central_park/  # Agents: triage graph, reasoning loop, interview, copilot, summary, labs, gaps, followup, careplan, cohort, query; tools (FHIR · vector · safety · risk · escalate)
 │  ├─ python/tests/         # Unit tests: red-flag gate, safety agent, reasoning loop, reviewer, interview, risk
 │  └─ cls/CentralPark/      # ObjectScript: FHIR install, REST dispatch, interop production, IntegratedML (ML.cls)
 ├─ iris-config/             # Boot script + demo seed bundles (patients, questionnaire)
@@ -286,6 +299,18 @@ curl -X POST http://localhost:8001/run -H 'Content-Type: application/json' \
 # Clinician copilot: read-only grounded Q&A about a patient
 curl -X POST http://localhost:8001/copilot -H 'Content-Type: application/json' \
   -d '{"patient_id":"demo-patient-1","question":"What raises this patient'\''s cardiac risk?"}'
+
+# More agents: risk, gaps (FHIR Tasks), summary, lab explainer, follow-up, care plan (CarePlan)
+curl -X POST http://localhost:8001/risk     -H 'Content-Type: application/json' -d '{"patient_id":"demo-patient-1"}'
+curl -X POST http://localhost:8001/gaps     -H 'Content-Type: application/json' -d '{"patient_id":"demo-patient-1"}'
+curl -X POST http://localhost:8001/summary  -H 'Content-Type: application/json' -d '{"patient_id":"demo-patient-1"}'
+curl -X POST http://localhost:8001/labs     -H 'Content-Type: application/json' -d '{"patient_id":"demo-patient-1"}'
+curl -X POST http://localhost:8001/followup -H 'Content-Type: application/json' -d '{"patient_id":"demo-patient-1"}'
+curl -X POST http://localhost:8001/careplan -H 'Content-Type: application/json' -d '{"patient_id":"demo-patient-1"}'
+
+# Population analytics + natural-language FHIR query
+curl http://localhost:8001/cohort
+curl -X POST http://localhost:8001/query -H 'Content-Type: application/json' -d '{"question":"patients with active conditions"}'
 
 # Run the unit tests: red-flag gate, safety agent, reasoning loop, reviewer, interview, risk fallback
 docker compose exec agent python -m pytest tests/ -q

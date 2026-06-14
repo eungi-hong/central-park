@@ -1,15 +1,31 @@
 import { useState } from "react";
-import { Activity, ExternalLink } from "lucide-react";
+import { Activity, ExternalLink, Inbox, Search, Users } from "lucide-react";
 import { WorklistScreen } from "@/components/WorklistScreen";
+import { CohortView } from "@/components/CohortView";
+import { ExploreView } from "@/components/ExploreView";
 import { CaseDetailScreen } from "@/components/CaseDetailScreen";
+import { cn } from "@/lib/utils";
 import type { TriageQueueItem } from "@/types";
 
-// The clinician console at "/". The worklist and case detail are the only
-// surfaces here — the clinician never fills in the patient interview. The link
-// to the patient intake opens its own URL in a new tab (framed as "this is
-// what the patient gets", e.g. a waiting-room kiosk), never inline.
+type View = "worklist" | "cohort" | "explore";
+
+const NAV: { id: View; label: string; icon: typeof Inbox }[] = [
+  { id: "worklist", label: "Worklist", icon: Inbox },
+  { id: "cohort", label: "Cohort", icon: Users },
+  { id: "explore", label: "Explore", icon: Search },
+];
+
+// The clinician console at "/". Three surfaces — the per-case worklist, the
+// population Cohort view, and the NL Explore query — plus the case detail. The
+// patient intake opens its own URL in a new tab; the clinician never fills it in.
 export function ClinicianApp() {
+  const [view, setView] = useState<View>("worklist");
   const [selected, setSelected] = useState<TriageQueueItem | null>(null);
+
+  function go(v: View) {
+    setSelected(null);
+    setView(v);
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -19,7 +35,28 @@ export function ClinicianApp() {
             <Activity className="h-4 w-4" />
           </span>
           <span className="text-[15px] font-semibold tracking-tight">Triage Park</span>
-          <span className="text-sm text-muted-foreground">· Clinical triage</span>
+          <span className="hidden text-sm text-muted-foreground sm:inline">· Clinical AI platform</span>
+
+          <nav className="ml-6 flex items-center gap-1">
+            {NAV.map((n) => {
+              const active = !selected && view === n.id;
+              return (
+                <button
+                  key={n.id}
+                  onClick={() => go(n.id)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+                    active
+                      ? "bg-accent font-medium text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <n.icon className="h-4 w-4" />
+                  {n.label}
+                </button>
+              );
+            })}
+          </nav>
 
           <a
             href="/intake"
@@ -35,8 +72,12 @@ export function ClinicianApp() {
       <main className="mx-auto max-w-5xl px-6 py-8">
         {selected ? (
           <CaseDetailScreen item={selected} onBack={() => setSelected(null)} />
-        ) : (
+        ) : view === "worklist" ? (
           <WorklistScreen onOpen={setSelected} />
+        ) : view === "cohort" ? (
+          <CohortView />
+        ) : (
+          <ExploreView />
         )}
       </main>
     </div>

@@ -1,11 +1,19 @@
 import type {
+  CarePlanResult,
   CaseOutcome,
   Citation,
+  CohortResult,
+  FollowupResult,
+  GapsResult,
   Handoff,
+  LabsResult,
   NextQuestionResult,
   PatientRecord,
+  PatientSummary,
   QA,
+  QueryResult,
   RecordEntry,
+  RiskAssessment,
   TriageLevel,
   TriageQueueItem,
 } from "@/types";
@@ -129,6 +137,60 @@ export async function fetchNextQuestion(
     throw new ApiError("agent-http", "The triage agent returned an error.", resp.status, detail);
   }
   return (await resp.json()) as NextQuestionResult;
+}
+
+// Shared POST to an agent endpoint that takes { patient_id } and returns JSON.
+async function agentPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  let resp: Response;
+  try {
+    resp = await fetch(`${AGENT_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError("agent-unreachable", "Cannot reach the triage agent.");
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    throw new ApiError("agent-http", "The agent returned an error.", resp.status, detail);
+  }
+  return (await resp.json()) as T;
+}
+
+export const fetchRiskAssessment = (patientId: string) =>
+  agentPost<RiskAssessment>("/risk", { patient_id: patientId });
+
+export const fetchCareGaps = (patientId: string) =>
+  agentPost<GapsResult>("/gaps", { patient_id: patientId });
+
+export const fetchPatientSummary = (patientId: string, audience = "clinician") =>
+  agentPost<PatientSummary>("/summary", { patient_id: patientId, audience });
+
+export const explainLabs = (patientId: string) =>
+  agentPost<LabsResult>("/labs", { patient_id: patientId });
+
+export const draftCarePlan = (patientId: string) =>
+  agentPost<CarePlanResult>("/careplan", { patient_id: patientId });
+
+export const runFollowup = (patientId: string) =>
+  agentPost<FollowupResult>("/followup", { patient_id: patientId });
+
+export const runNlQuery = (question: string) =>
+  agentPost<QueryResult>("/query", { question });
+
+export async function fetchCohort(): Promise<CohortResult> {
+  let resp: Response;
+  try {
+    resp = await fetch(`${AGENT_BASE}/cohort`);
+  } catch {
+    throw new ApiError("agent-unreachable", "Cannot reach the triage agent.");
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    throw new ApiError("agent-http", "The cohort agent returned an error.", resp.status, detail);
+  }
+  return (await resp.json()) as CohortResult;
 }
 
 // Clinician copilot: ask a read-only, grounded question about one patient.

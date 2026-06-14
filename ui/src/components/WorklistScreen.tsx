@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, ChevronRight, Inbox, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Inbox, RefreshCw, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchTriageQueue, ApiError } from "@/api";
 import { levelConfig } from "@/data/questions";
 import { cn } from "@/lib/utils";
-import type { TriageQueueItem } from "@/types";
+import type { TriageLevel, TriageQueueItem } from "@/types";
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "—";
@@ -46,6 +46,14 @@ export function WorklistScreen({ onOpen }: Props) {
 
   const unacked = items.filter((i) => i.escalated && !i.acknowledged_at).length;
 
+  // Group by acuity, highest first (the Linear/ClickUp "group by status" pattern).
+  const LEVEL_ORDER: TriageLevel[] = ["ed", "urgent-care", "see-gp", "self-care"];
+  const byLevel = (lvl: string) => items.filter((i) => i.triage_level === lvl);
+  const ordered = [
+    ...LEVEL_ORDER.flatMap(byLevel),
+    ...items.filter((i) => !LEVEL_ORDER.includes(i.triage_level as TriageLevel)),
+  ];
+
   return (
     <div className="space-y-5">
       <div className="flex items-end justify-between gap-3">
@@ -63,6 +71,31 @@ export function WorklistScreen({ onOpen }: Props) {
           Refresh
         </Button>
       </div>
+
+      {items.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatCard icon={Inbox} label="Total cases" value={items.length} tone="text-slate-500" />
+          <StatCard
+            icon={AlertTriangle}
+            label="Acute (ED + urgent)"
+            value={byLevel("ed").length + byLevel("urgent-care").length}
+            tone="text-orange-600"
+          />
+          <StatCard
+            icon={ShieldAlert}
+            label="Need review"
+            value={unacked}
+            tone={unacked > 0 ? "text-red-600" : "text-muted-foreground"}
+            emphasize={unacked > 0}
+          />
+          <StatCard
+            icon={Check}
+            label="Acknowledged"
+            value={items.filter((i) => i.escalated && i.acknowledged_at).length}
+            tone="text-emerald-600"
+          />
+        </div>
+      )}
 
       {status === "error" && (
         <div className="rounded-lg border border-dashed p-6 text-sm">
@@ -85,7 +118,7 @@ export function WorklistScreen({ onOpen }: Props) {
 
       {items.length > 0 && (
         <ul className="divide-y rounded-lg border">
-          {items.map((item) => {
+          {ordered.map((item) => {
             const cfg = levelConfig(item.triage_level);
             return (
               <li key={item.service_request_id}>
@@ -130,6 +163,32 @@ export function WorklistScreen({ onOpen }: Props) {
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  tone,
+  emphasize,
+}: {
+  icon: typeof Inbox;
+  label: string;
+  value: number;
+  tone: string;
+  emphasize?: boolean;
+}) {
+  return (
+    <div className={cn("rounded-lg border bg-card p-3.5", emphasize && "border-red-200 bg-red-50/40")}>
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Icon className={cn("h-3.5 w-3.5", tone)} />
+        {label}
+      </div>
+      <p className={cn("mt-1 text-2xl font-semibold tabular-nums leading-none", emphasize && "text-red-700")}>
+        {value}
+      </p>
     </div>
   );
 }

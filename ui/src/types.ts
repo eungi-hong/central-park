@@ -54,6 +54,82 @@ export interface NextQuestionResult {
   question: DynamicQuestion | null;
 }
 
+// Outputs of the per-patient agents surfaced in the clinician console.
+export interface RiskAssessment {
+  band: "low" | "moderate" | "high" | string;
+  score: number;
+  probability: number;
+  method: "integratedml" | "heuristic" | string;
+  drivers: string[];
+  features: { age: number; comorbid: number; severity: number };
+}
+
+export interface CareGap {
+  code: string;
+  title: string;
+  detail: string;
+  priority: string;
+}
+
+export interface GapsResult {
+  gaps: CareGap[];
+  task_ids: string[];
+}
+
+export interface PatientSummary {
+  headline: string;
+  summary: string;
+  key_problems: string[];
+  active_medications: string[];
+  cautions: string[];
+  audience: string;
+}
+
+export interface LabExplanation {
+  name: string;
+  value: string;
+  plain: string;
+}
+
+export interface LabsResult {
+  explanations: LabExplanation[];
+  overall: string;
+}
+
+export interface CohortPatient {
+  patient_id: string;
+  name: string;
+  risk_band: string;
+  risk_score: number;
+  risk_method: string;
+  gaps: number;
+}
+
+export interface CohortResult {
+  patients: CohortPatient[];
+  aggregates: { total: number; high: number; moderate: number; low: number; open_gaps: number };
+}
+
+export interface QueryResult {
+  resource_type: string;
+  params: Record<string, string>;
+  explanation: string;
+  total: number;
+  results: { id: string; type: string; display: string }[];
+  error?: string;
+}
+
+export interface CarePlanResult {
+  title: string;
+  activities: string[];
+  care_plan_id: string;
+}
+
+export interface FollowupResult {
+  findings: { observation: string; value: string; concern: string; priority: string }[];
+  task_ids: string[];
+}
+
 // One row in the clinician worklist, derived from a FHIR ServiceRequest
 // (each triage interview writes one) plus its linked Patient.
 export interface TriageQueueItem {

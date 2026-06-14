@@ -466,6 +466,98 @@ def create_detected_issues(patient_id: str, issues: list[dict]) -> list[str]:
     return ids
 
 
+def create_tasks(patient_id: str, gaps: list[dict]) -> list[str]:
+    """Persist care gaps as FHIR Task resources and return their ids.
+
+    Best-effort: a failed write is logged and skipped.
+    """
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ids: list[str] = []
+    with _client() as c:
+        for gap in gaps:
+            payload = {
+                "resourceType": "Task",
+                "status": "requested",
+                "intent": "plan",
+                "priority": gap.get("priority", "routine"),
+                "code": {"text": gap.get("title", "Care gap")},
+                "description": gap.get("detail", ""),
+                "for": {"reference": f"Patient/{patient_id}"},
+                "authoredOn": now,
+            }
+            try:
+                resp = c.post("/Task", json=payload, headers={"Content-Type": "application/fhir+json"})
+                resp.raise_for_status()
+                ids.append(_extract_id(resp, "Task"))
+            except Exception as exc:
+                _log.warning("create_task failed for %s: %s", gap.get("code"), exc)
+    return ids
+
+
+# Resource types the NL->FHIR query agent is allowed to read. Read-only and
+# allow-listed so a generated query can never touch anything unexpected.
+QUERYABLE_RESOURCES: frozenset[str] = frozenset({
+    "Patient", "Condition", "Observation", "MedicationRequest", "AllergyIntolerance",
+    "Encounter", "ServiceRequest", "Task", "DetectedIssue", "CarePlan",
+})
+
+
+def _summary_display(r: dict, resource_type: str) -> str:
+    """A short human-readable label for a resource in search results."""
+    if resource_type == "Patient":
+        return _trim_patient(r).get("name") or r.get("id", "")
+    if resource_type == "MedicationRequest":
+        return _coding_display(r.get("medicationCodeableConcept")) or r.get("status", "")
+    if resource_type in ("Condition", "Observation", "AllergyIntolerance", "ServiceRequest", "Task"):
+        return _coding_display(r.get("code")) or r.get("description") or r.get("status", "")
+    if resource_type == "DetectedIssue":
+        return _coding_display(r.get("code")) or r.get("severity", "")
+    if resource_type == "CarePlan":
+        return r.get("title") or _coding_display((r.get("category") or [{}])[0]) or r.get("status", "")
+    return r.get("id", "")
+
+
+def fhir_search(resource_type: str, params: dict, count: int = 20) -> dict:
+    """Read-only FHIR search over an allow-listed resource type.
+
+    Returns {total, results: [{id, type, display}]}. Raises ValueError for a
+    resource type outside QUERYABLE_RESOURCES.
+    """
+    if resource_type not in QUERYABLE_RESOURCES:
+        raise ValueError(f"resource type {resource_type!r} is not queryable")
+    clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
+    with _client() as c:
+        resp = c.get(f"/{resource_type}", params={**clean, "_count": str(count)})
+        resp.raise_for_status()
+    bundle = resp.json()
+    rows = [
+        {"id": r.get("id", ""), "type": resource_type, "display": _summary_display(r, resource_type)}
+        for r in _entries(bundle)
+    ]
+    total = bundle.get("total")
+    return {"total": total if total is not None else len(rows), "results": rows}
+
+
+def create_care_plan(patient_id: str, title: str, activities: list[str]) -> str:
+    """Create a FHIR CarePlan with the given activities and return its id."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload = {
+        "resourceType": "CarePlan",
+        "status": "active",
+        "intent": "plan",
+        "title": title or "Care plan",
+        "subject": {"reference": f"Patient/{patient_id}"},
+        "created": now,
+        "activity": [
+            {"detail": {"status": "not-started", "description": a}} for a in activities if a
+        ],
+    }
+    with _client() as c:
+        resp = c.post("/CarePlan", json=payload, headers={"Content-Type": "application/fhir+json"})
+        resp.raise_for_status()
+    return _extract_id(resp, "CarePlan")
+
+
 def get_patient_context(patient_id: str) -> PatientContext:
     with _client() as c:
         patient_resp = c.get(f"/Patient/{patient_id}")
