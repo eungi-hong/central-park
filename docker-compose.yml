@@ -52,6 +52,8 @@ services:
     volumes:
       # Live-reload for Python edits.
       - ./src/python/central_park:/app/central_park
+      # Unit tests for the deterministic red-flag gate (run: pytest tests/).
+      - ./src/python/tests:/app/tests:ro
       # Demo FHIR bundles, re-seeded at runtime by seed_demo_patients().
       - ./iris-config/seed:/app/seed:ro
     depends_on:

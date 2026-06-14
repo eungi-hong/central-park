@@ -1,31 +1,38 @@
 # Triage Park
 
-**Triage Park automates the pre-checkup.** Every visit starts with the same manual work — take the patient's history, cross-check their record, and judge how urgent it is. Triage Park does that first pass for you: the patient answers a short intake interview, an LLM-backed agent reads their FHIR record and retrieves matching triage guidelines by vector search, and the clinician opens a ready-made handoff — a triage level (self-care / see-GP / urgent-care / ED) with a cited rationale. Every interview and its outcome is written back to FHIR.
+**The pre-checkup, automated — with a safety floor that can only ever escalate.**
 
-Built for the [InterSystems Programming Contest: AI Agents for FHIR](https://openexchange.intersystems.com/contest/46).
+[![Live demo](https://img.shields.io/badge/live_demo-online-2ea44f)](https://triagepark.78-47-167-98.sslip.io/) [![Walkthrough](https://img.shields.io/badge/video-walkthrough-red)](https://youtu.be/3hqf62btWYQ) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · Built for the [InterSystems Programming Contest: AI Agents for FHIR](https://openexchange.intersystems.com/contest/46)
+
+Every visit starts with the same manual work — take the patient's history, cross-check their record, judge how urgent it is. **Triage Park does that first pass for you.** A patient answers a short intake interview; a LangGraph agent reads their FHIR record, retrieves matching triage guidelines by vector search, and a clinician opens a ready-made handoff — a triage level (self-care / see-GP / urgent-care / ED) with a cited rationale. Every interview and its outcome is written back to FHIR as standard R4 resources.
+
+It implements the contest's suggested **Conversational FHIR Triage Assistant**, and the agent is called **inside a real IRIS Interoperability production** — a REST business service dispatches to a triage business operation that raises `Ens.AlertRequest` on escalation, so every triage is a traceable message in Visual Trace, not a side-channel API call.
 
 ---
 
-## Contest bonuses
+## Why Triage Park
 
-The [contest bonuses](https://community.intersystems.com/post/technology-bonuses-intersystems-programming-contest-ai-agents-fhir) this submission targets, with where each is earned. **Legend:** ✅ done · 🔜 planned.
+Triage is the most contested idea in this contest. Here is what sets this entry apart:
 
-| Bonus | Points | Status | Where |
-| --- | --- | --- | --- |
-| Implement suggested task | 5 | ✅ | Conversational FHIR triage assistant — a suggested contest topic |
-| InterSystems FHIR Server usage | 2 | ✅ | Native IRIS for Health FHIR R4 endpoint — reads context, writes 5 resource types |
-| Vector Search usage | 4 | ✅ | `VECTOR(float, 1536)` guideline corpus queried with `VECTOR_COSINE` |
-| LLM AI or LangChain usage | 3 | ✅ | Five-node LangGraph state machine + structured LLM reasoning |
-| Docker container usage | 2 | ✅ | `docker compose up --build` boots all three services |
-| ZPM Package deployment | 2 | ✅ | `module.xml` manifest for IPM deployment |
-| Online Demo | 2 | ✅ | Cloud-hosted instance |
-| Implement InterSystems Community Idea | 4 | ✅ | Implements [TTTC — *The Tool That Cares*](https://ideas.intersystems.com/ideas/DPI-I-283) (Community Opportunity) |
-| First Article on Developer Community | 2 | ✅ | Build write-up on the Developer Community |
-| Second Article on DC | 1 | ✅ | Second write-up / translation on the Developer Community |
-| First Time Contribution | 3 | ✅ | First InterSystems Open Exchange submission |
-| Video on YouTube | 9 | ✅ | [Walkthrough](https://youtu.be/g6undsoEDms) published; 2 more on channel (+6) |
+- **A deterministic safety gate that can only escalate.** Before the LLM runs, a hard-coded screen for can't-miss emergencies (stroke signs, airway compromise, anaphylaxis, major haemorrhage, syncope, suicidal ideation) short-circuits straight to ED. The probabilistic reasoner sits *on top of* this floor — a missed keyword can never lower a triage level below a matched emergency. Patient safety doesn't depend on an LLM getting it right.
+- **The agent lives in the platform, not beside it.** It's a first-class Interoperability business operation. Every triage flows through `Ens.MessageHeader` and is visible in Visual Trace — exactly the "AI agent called in an interoperability FHIR solution" the contest asks for.
+- **Embeddings run server-side in IRIS.** The agent sends *raw text*; IRIS computes embeddings via `%Embedding.OpenAI` (AI Hub) and runs HNSW-indexed `VECTOR_COSINE` search. That's the platform's intended AI-Hub pattern, not a bolt-on vector store.
+- **Full FHIR write-back, not just reads.** Every interview persists five resource types (`QuestionnaireResponse`, `Encounter`, `ServiceRequest`, coded `Observation`s, `Communication`). The clinician console reconstructs an entire past case from FHIR alone — no LLM re-run.
+- **One command, then a live URL.** `docker compose up --build` boots all three services; or skip the clone entirely and open the [hosted demo](https://triagepark.78-47-167-98.sslip.io/).
 
-**Secured: 31 points** — up to **39** with the online demo (+2) and two more videos (+6).
+---
+
+## See it
+
+**▶ [Watch the 3-minute walkthrough](https://youtu.be/3hqf62btWYQ)** — the patient interviews, the agent triages, the clinician reviews. · **[Try the live demo](https://triagepark.78-47-167-98.sslip.io/)** ([patient intake](https://triagepark.78-47-167-98.sslip.io/intake))
+
+| Patient intake interview (`/intake`) | Clinician console (`/`) |
+| --- | --- |
+| ![Patient intake interview — the 6-question structured intake chat](docs/images/intake-interview.png) | ![Clinician console — the triage worklist](docs/images/clinician-console.png) |
+
+The clinician handoff — grounded on the patient's FHIR record, with cited guidelines and the IDs of every resource written back:
+
+![Clinician handoff summary with triage level, cited guidelines, and written-back FHIR resource IDs](docs/images/handoff-summary.png)
 
 ---
 
@@ -46,7 +53,9 @@ Then open:
 | **http://localhost:8501/intake** | Patient self-intake — the interview |
 | http://localhost:52773/csp/sys/UtilHome.csp | IRIS Management Portal (`_SYSTEM` / `SYS`) |
 
-Once seeding finishes, the console shows three example cases (self-care, see-GP, and an emergency) — no interview needed. Then open `/intake`, run the demo patient `demo-patient-1` through the chest-tightness scenario, and watch a new case appear live in the worklist.
+Once seeding finishes, the console shows six example cases spanning all four triage levels — no interview needed. Then open `/intake`, run the demo patient `demo-patient-1` (Marcus Reeves, cardiac-risk-loaded) through the chest-tightness scenario, and watch a new case appear live in the worklist.
+
+> Prefer not to install anything? The full app is hosted at **[triagepark.78-47-167-98.sslip.io](https://triagepark.78-47-167-98.sslip.io/)**.
 
 ---
 
@@ -59,17 +68,24 @@ Once seeding finishes, the console shows three example cases (self-care, see-GP,
 
 ---
 
-## Demo
+## The safety gate
 
-**▶ [Watch the walkthrough](https://youtu.be/g6undsoEDms)** — the patient interviews, the agent triages, and the clinician reviews.
+Triage Park's flagship design choice is that **clinical safety is deterministic, not probabilistic.**
 
-| Patient intake interview (`/intake`) | Clinician console (`/`) |
-| --- | --- |
-| ![Patient intake interview — the 6-question structured intake chat](docs/images/intake-interview.png) | ![Clinician console — the triage worklist](docs/images/clinician-console.png) |
+```
+retrieve_guidelines
+      │
+      ▼
+validate_red_flags   ── hard emergency phrase matched ──▶ escalate to ED  (no LLM call)
+      │
+      └── clear ──▶ reason (single structured LLM call) ──▶ escalate if urgent-care/ED
+```
 
-The clinician handoff summary, grounded on the patient's FHIR record with cited guidelines and the IDs of every resource written back:
+`validate_red_flags` runs *before* the LLM. A non-negated match on a can't-miss phrase (with a cheap negation guard, so "no slurred speech" doesn't fire) short-circuits straight to ED escalation, skipping the model entirely. The gate **can only ever escalate, never downgrade** — so the LLM missing a keyword cannot lower a triage level below a matched red flag.
 
-![Clinician handoff summary with triage level, cited guidelines, and written-back FHIR resource IDs](docs/images/handoff-summary.png)
+The scope is deliberately narrow: only presentations that warrant the ED *regardless of context*. Nuanced complaints — chest tightness, for example — are intentionally **not** hard-coded; they need the patient's FHIR risk factors and guideline retrieval to triage correctly, and that reasoning is the LLM's job. The gate is the floor under the reasoner, not a replacement for it. Both paths are covered by unit tests (`src/python/tests/`).
+
+---
 
 ## Architecture
 
@@ -85,21 +101,22 @@ The clinician handoff summary, grounded on the patient's FHIR record with cited 
    ┌───────────────────┼─────────────────────────────────┐
    │ central-park-iris (IRIS for Health)                 │
    │   FHIR R4 endpoint  ·  REST dispatch (/triage …)    │
-   │   Interoperability production (REST inbox → agent   │
-   │     business operation → Ens alerts on escalation)  │
-   │   %Embedding.OpenAI config  ·  VECTOR_COSINE search │
+   │   Interoperability production:                       │
+   │     REST inbox (BS) → triage agent (BO) →            │
+   │     Ens.AlertRequest on escalation                   │
+   │   %Embedding.OpenAI (AI Hub)  ·  VECTOR_COSINE       │
    └───────────────────┼─────────────────────────────────┘
                         │ POST /run · /interview
         central-park-agent (FastAPI + LangGraph)
           gather_context → retrieve_guidelines →
-          red-flag gate → reason → escalate
+          validate_red_flags → reason → escalate
                         │
                   OpenAI (chat)
 ```
 
-Three services, one external dependency (OpenAI). The agent sends **raw text** to IRIS, which computes embeddings server-side via `%Embedding.OpenAI` — the platform's intended AI Hub pattern. A LangGraph state machine wraps the five-node flow; a deterministic red-flag gate can only ever *escalate*, never downgrade, so a missed keyword can't lower a triage level below a matched emergency phrase.
+Three services, one external dependency (OpenAI). The agent is invoked through the IRIS production — `CentralPark.REST.Dispatch` spawns the `RESTInbox` business service, which `SendRequestSync`s to the `TriageAgent` business operation, so every call lands in Visual Trace as an `Ens.MessageHeader`. The LangGraph reasoning itself executes in the Python sidecar over HTTP; see the note below on why.
 
-> The agent runs as a sidecar rather than Embedded Python: the image's ARM64 Embedded Python build is unstable (Callin SEGVs, broken `_uuid`). The IRIS production graph stays first-class — every triage is an `Ens.MessageHeader` visible in Visual Trace.
+> **Why a sidecar and not Embedded Python?** The production graph stays first-class either way — the agent is a real business operation in Visual Trace. But this image's ARM64 Embedded Python build is unstable (Callin `<SYSTEM>` aborts on `import`, broken `_uuid`), so running the LangGraph stack in-process would make the app fail to start on Apple-Silicon hosts. Keeping the reasoner in a sidecar trades the Embedded Python bonus for an app that boots reliably everywhere — the right call for a demo a judge has to run.
 
 ---
 
@@ -108,11 +125,12 @@ Three services, one external dependency (OpenAI). The agent sends **raw text** t
 | Capability | How Triage Park uses it |
 | --- | --- |
 | **FHIR R4** | Reads patient context; writes `QuestionnaireResponse`, `Encounter`, `ServiceRequest`, coded `Observation`s, and `Communication` |
-| **Vector Search** | `VECTOR(float, 1536)` guideline corpus queried with `VECTOR_COSINE` |
-| **AI Hub** | `%Embedding.Config` + `%Embedding.OpenAI` embed guidelines and queries inside IRIS; SSL config installed at boot |
-| **Interoperability** | Production with a REST inbox business service, triage agent business operation (HTTP outbound), and `Ens.AlertRequest` on urgent cases |
-| **LLM / LangGraph** | Five-node state machine in the sidecar (gather context → retrieve guidelines → red-flag gate → reason → escalate); single deterministic LLM call returning structured JSON |
+| **Vector Search** | `VECTOR(float, 1536)` guideline corpus queried with HNSW-indexed `VECTOR_COSINE` |
+| **AI Hub** | `%Embedding.Config` + `%Embedding.OpenAI` embed guidelines and queries *inside* IRIS; SSL config installed at boot |
+| **Interoperability** | Production with a REST inbox business service, a triage agent business operation, and `Ens.AlertRequest` on urgent cases — every triage visible in Visual Trace |
+| **LLM / LangGraph** | Five-node state machine (gather context → retrieve guidelines → red-flag gate → reason → escalate); single deterministic LLM call returning structured JSON |
 | **Docker** | `docker compose up --build` boots all three services |
+| **IPM / ZPM** | `module.xml` manifest for one-line deployment |
 
 ### FHIR resources written
 
@@ -120,11 +138,34 @@ Three services, one external dependency (OpenAI). The agent sends **raw text** t
 | --- | --- | --- |
 | `QuestionnaireResponse` | every interview | the patient's answers |
 | `Encounter` | every triage | the virtual consultation |
-| `ServiceRequest` | every triage | triage level (SNOMED), chief complaint, and the agent's narrative (HPI, actions, red flags, cited guidelines) + clinician acknowledgement as notes |
+| `ServiceRequest` | every triage | triage level (SNOMED), chief complaint, the agent's narrative (HPI, actions, red flags, cited guidelines), and clinician acknowledgement as notes |
 | `Observation` | interview | LOINC severity score + SNOMED symptom flags parsed from answers |
 | `Communication` | urgent/ED | the escalation alert |
 
 Persisting the narrative on the `ServiceRequest` is what lets the console reconstruct a full past case from FHIR alone — no LLM re-run.
+
+---
+
+## Contest bonuses
+
+The [contest bonuses](https://community.intersystems.com/post/technology-bonuses-intersystems-programming-contest-ai-agents-fhir) this submission earns, with where each lands.
+
+| Bonus | Points | Where |
+| --- | --- | --- |
+| Implement a suggested task | 5 | **Conversational FHIR Triage Assistant** — suggested topic #10 |
+| InterSystems FHIR Server usage | 2 | Native IRIS for Health FHIR R4 endpoint — reads context, writes 5 resource types |
+| Vector Search usage | 4 | `VECTOR(float, 1536)` corpus queried with `VECTOR_COSINE` |
+| LLM AI / LangChain usage | 3 | Five-node LangGraph state machine + structured LLM reasoning |
+| Docker container usage | 2 | `docker compose up --build` boots all three services |
+| ZPM (IPM) package deployment | 2 | `module.xml` manifest |
+| Online Demo | 2 | [triagepark.78-47-167-98.sslip.io](https://triagepark.78-47-167-98.sslip.io/) |
+| Implement a Community Idea | 4 | Implements [TTTC — *The Tool That Cares*](https://ideas.intersystems.com/ideas/DPI-I-283) |
+| First Article on Developer Community | 2 | Build write-up on the Developer Community |
+| Second Article on DC | 1 | Second write-up / translation |
+| First Time Contribution | 3 | First InterSystems Open Exchange submission |
+| Videos on YouTube (3 × 3) | 9 | [Walkthrough](https://youtu.be/3hqf62btWYQ) · [Deep dive](https://youtu.be/GeOe1DwS50I) · [Original demo](https://youtu.be/g6undsoEDms) |
+
+**Total: 39 points.**
 
 ---
 
@@ -136,11 +177,13 @@ Persisting the narrative on the `ServiceRequest` is what lets the console recons
 ├─ agent/                   # Dockerfile for the FastAPI + LangGraph sidecar
 ├─ src/
 │  ├─ python/central_park/  # Agent: LangGraph graph, tools (FHIR · vector · escalate), seeding
+│  ├─ python/tests/         # Unit tests for the deterministic red-flag gate
 │  └─ cls/CentralPark/      # ObjectScript: FHIR install, REST dispatch, interop production
 ├─ iris-config/             # Boot script + demo seed bundles (patients, questionnaire)
 ├─ web/                     # Static assets served by IRIS
 ├─ Dockerfile               # IRIS for Health image: namespace, FHIR R4 endpoint, classes
 ├─ docker-compose.yml       # iris + agent + ui  (+ optional ollama profile)
+├─ docker-compose.prod.yml  # adds a Caddy HTTPS reverse proxy for the hosted demo
 └─ module.xml               # OpenExchange / IPM manifest
 ```
 
@@ -162,17 +205,17 @@ Seeded automatically at agent startup: the agent waits for the FHIR endpoint, th
 | **Daniel Osei** | 28, no chronic conditions | Urgent-care — migratory right-lower-quadrant pain (possible appendicitis) |
 | **Sofia Marchetti** | 44, asthma | Emergency — acute breathlessness |
 
-The seeded cases span all four triage levels — self-care, see-GP, urgent-care, and emergency — across a range of ages and presentations. Marcus is deliberately cardiac-risk-loaded so a chest-tightness scenario exercises real reasoning over his FHIR record.
+The seeded cases span all four triage levels across a range of ages and presentations. Marcus is deliberately cardiac-risk-loaded so a chest-tightness scenario exercises real reasoning over his FHIR record.
 
 ---
 
 ## Verify
 
 ```bash
-curl http://localhost:8001/health                                   # agent
-curl -u _SYSTEM:SYS http://localhost:52773/centralpark/health        # IRIS
+curl http://localhost:8001/health                                    # agent
+curl -u _SYSTEM:SYS http://localhost:52773/centralpark/health         # IRIS
 
-# Vector search (no LLM cost)
+# Vector search (no LLM chat cost — embeds + searches inside IRIS)
 curl -X POST http://localhost:52773/centralpark/vector/search -u _SYSTEM:SYS \
   -H 'Content-Type: application/json' -d '{"query":"chest tightness on exertion","k":3}'
 
@@ -180,9 +223,12 @@ curl -X POST http://localhost:52773/centralpark/vector/search -u _SYSTEM:SYS \
 curl -X POST http://localhost:52773/centralpark/triage -u _SYSTEM:SYS \
   -H 'Content-Type: application/json' \
   -d '{"patient_id":"demo-patient-1","message":"My chest feels tight when I walk upstairs."}'
+
+# Run the safety-gate unit tests
+docker compose exec agent python -m pytest tests/ -q
 ```
 
-Visual Trace shows every triage as an Ens message; the Embedding config lives under System Administration → Configuration → Connectivity → Embedding Configurations.
+Visual Trace shows every triage as an `Ens.MessageHeader`; the Embedding config lives under System Administration → Configuration → Connectivity → Embedding Configurations.
 
 ---
 
@@ -205,4 +251,11 @@ Switch chat to Anthropic (`CP_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`) or 
 - **Iterate** — Python under `src/python/` is bind-mounted: `docker compose restart agent`. ObjectScript and boot config need `docker compose up --build`.
 - **Seeding** runs automatically at agent startup and is idempotent. If the worklist ever looks empty (e.g. IRIS was unusually slow to start), `docker compose restart agent` re-runs the seed safely.
 - **Data** persists in the `iris-data` volume across restarts. `docker compose down -v` wipes it and re-seeds on next boot.
-- **License** — MIT, see `LICENSE`.
+
+---
+
+## Authors
+
+**Hong Eungi** and **Antor Chowdhury** — first-time InterSystems Open Exchange contributors.
+
+**License** — MIT, see [LICENSE](LICENSE).
