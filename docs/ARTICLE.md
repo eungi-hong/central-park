@@ -7,7 +7,7 @@
 
 Ask a clinician what the first ten minutes of a visit look like and you'll hear the same list every time: take the history, pull up the record, cross-check the medications, and decide how urgent this is. It's necessary, it's repetitive, and rushing it is exactly how things get missed.
 
-So we built **Triage Park**: a team of specialist AI agents that does that first pass, runs entirely inside InterSystems IRIS for Health, and hands the clinician a cited, explainable handoff. The thing we cared about most is the thing most "AI triage" demos hand-wave: **safety**. In Triage Park, clinical safety is *deterministic*, and every safety mechanism is one-directional - it can raise how urgent a case is, never lower it. Patient safety never rests on a language model getting it right on the first try.
+So we built **Triage Park**: a team of AI agents, backed by deterministic safety checks, that does that first pass, runs entirely inside InterSystems IRIS for Health, and hands the clinician a cited, explainable handoff. The thing we cared about most is the thing most "AI triage" demos hand-wave: **safety**. In Triage Park, clinical safety is *deterministic*, and every safety mechanism is one-directional - it can raise how urgent a case is, never lower it. Patient safety never rests on a language model getting it right on the first try.
 
 This article walks through how it's built and the decisions we think make it worth a look.
 
@@ -61,22 +61,23 @@ The reasoning step (`reason`) is a bounded ReAct loop, not a single call. Each t
 
 Available tools: a refined `search_guidelines` vector query, `get_observations` to zoom into specific vitals/labs, and `get_risk_score` to consult the IntegratedML model. The loop is capped and falls back to a single structured call if the model never commits, so it always resolves. On the chest-tightness demo, the agent pulls the patient's cardiac risk factors and the relevant guidelines and lands on ED - with both citations grounded in sources it actually retrieved.
 
-## One platform, many agents
+## One platform: agents, checks, and skills
 
-Triage is the flagship, but it's one capability among many. The same FHIR-grounded, deterministically-safe core powers a suite of specialist agents, each writing standard FHIR resources back:
+Triage is the flagship, but it's one capability among many. The platform is split on purpose: judgment-heavy work runs as agents (tool-using loops that decide and act), safety-critical work runs as deterministic checks (rules, not an LLM), and the rest are focused LLM skills. Each writes standard FHIR back where it makes sense.
 
-| Agent | Type | Writes |
+| Capability | Kind | Writes |
 | --- | --- | --- |
-| Adaptive **intake** interview (multilingual) | LLM | `QuestionnaireResponse` |
-| **Safety / interaction** screen | Deterministic | `DetectedIssue` |
-| **Triage** reasoner + **reviewer** | LLM | `Encounter`, `ServiceRequest`, `Communication` |
-| **Risk** workbench | IntegratedML / heuristic | - |
-| **Gaps-in-care** + **result follow-up** | Deterministic | `Task` |
-| **Care-plan** | LLM | `CarePlan` |
-| **Summary**, **lab explainer**, **copilot** | LLM | - |
-| **Cohort** analytics + **NL→FHIR query** | Deterministic / LLM | - |
+| **Triage** reasoner | Agent (tool loop) | `Encounter`, `ServiceRequest`, `Communication` |
+| Adaptive **intake** interview (multilingual) | Agent (adaptive loop) | `QuestionnaireResponse` |
+| **Copilot** | Agent (read-only tool loop) | - |
+| **Reviewer** | LLM critic | (escalation only) |
+| **Red-flag gate**, **safety / interaction** | Deterministic check | `DetectedIssue` |
+| **Gaps-in-care**, **result follow-up** | Deterministic check | `Task` |
+| **Cohort** analytics | Deterministic (batch) | - |
+| **Risk** | IntegratedML / heuristic | - |
+| **Summary**, **lab explainer**, **care plan**, **NL→FHIR query** | LLM skill | `CarePlan` (care plan) |
 
-And over all of them sits a **supervisor orchestrator**: a clinician can type "summarize this patient, check readmission risk, and flag care gaps," and it routes to the right agents and *chains* them - `summary → risk → gaps` - then synthesizes one answer. The specialists keep their own depth; routing doesn't flatten the triage loop or the safety floor.
+And over all of them sits a **supervisor orchestrator**: a clinician can type "summarize this patient, check readmission risk, and flag care gaps," and it routes to the right components and *chains* them - `summary → risk → gaps` - then synthesizes one answer. Each component keeps its own depth; routing doesn't flatten the triage loop or the safety floor.
 
 The clinician console reflects this: a **Worklist** with caseload KPIs, a **Cohort** analytics view (risk distribution, care gaps grouped by type, top conditions), an **Explore** view for natural-language FHIR queries, and an **Assistant** driven by the orchestrator. Open a case and every decision is explainable - the console reconstructs the whole case, including which agents ran and the reviewer's verdict, from FHIR alone.
 

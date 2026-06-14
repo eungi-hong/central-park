@@ -49,7 +49,7 @@ Record 1920x1080, browser ~110% zoom, no bookmarks bar, cursor-highlight on. Pre
 **Visual:** Title card "AI Agents for FHIR." Then a single animated loop diagram (slide S0): **Perceive (read FHIR) -> Reason (tools) -> Act (write FHIR) -> Trace (in the production)**, with a small lock icon labeled "safety floor: escalate-only."
 **On-screen text:** "Not a chatbot. An agent: perceive - reason - act - accountable."
 **Voiceover:**
-> "This contest asks for AI agents for FHIR. A real one isn't a chatbot. It perceives a patient's record, reasons over it with tools, acts by writing FHIR back, and stays accountable, every step traceable inside the interoperability production. Triage Park is a whole team of these agents."
+> "This contest asks for AI agents for FHIR. A real one isn't a chatbot. It perceives a patient's record, reasons over it with tools, acts by writing FHIR back, and stays accountable, every step traceable inside the interoperability production. Triage Park is built from a team of these agents, with deterministic safety checks underneath so they can only ever escalate."
 
 ### Scene 2 - Why it matters (0:30-1:15) · B-ROLL + SLIDE (three personas)
 **Visual:** Brief b-roll (busy waiting room; clinician on a long chart at night); then slide S3, three columns: Patient · Clinician · Health system. A stat card: "rushed triage misses red flags; readmissions cost the US ~$17B/yr."
@@ -136,7 +136,7 @@ Minimal, one idea per slide, large type.
 - **S2 Stakes.** Three stats: repetitive manual triage · missed red flags · ~$17B/yr readmissions.
 - **S3 Who it's for.** Patient · Clinician · Health system, one promise each.
 - **S4 Architecture.** Three-service diagram; animate the triage message path through the production.
-- **S5 The agents.** Grid of all fifteen agents; caption "Deterministic where safety matters, agentic where judgment matters."
+- **S5 The platform.** A grid labelled by kind: **agents** (orchestrator, triage reasoner, intake, copilot), **deterministic checks** (red-flag gate, safety, gaps, follow-up), and **LLM skills** (summary, labs, care plan, NL→FHIR query), plus the IntegratedML risk model. Caption: "Deterministic where safety matters, agentic where judgment matters."
 - **S6 The safety guarantee.** Layered diagram with "can only escalate, never downgrade." Linger.
 - **S7 InterSystems features.** Checklist mapping to the technology bonuses: FHIR R4 (8 resources written) · Interoperability + Visual Trace · Vector Search · AI Hub · IntegratedML · Docker · IPM.
 - **S8 Recap + CTA.** Three personas, vote link, demo URL.
@@ -168,7 +168,7 @@ Keep: Scene 1 (0:20, trimmed) · Scene 3 intake (0:30) · Scene 5 case detail (0
 ## Recording & editing notes
 
 - **Lead with the agent idea, then the people.** First 15 seconds: name what an AI agent for FHIR is (perceive/reason/act/accountable). Then make a non-engineer care about the stakes. Architecture is the payoff at the end, not the pitch.
-- **Keep "agent" language throughout.** Say "the agents" not "the app"; "the agent acts/writes/escalates" not "the system does." The contest is about agents; the vocabulary should reflect it.
+- **Use precise language.** Call the tool-using, deciding components "agents" (orchestrator, triage reasoner, intake, copilot); call the rule-based pieces "checks." Don't blur them - the determinism of the safety checks is a selling point, not something to dress up as an agent.
 - **The safety moment is the peak** - it is the one thing the field does not have. Slow down, zoom, chime.
 - **Burn in captions;** many judges watch muted first.
 - **Pace the demo:** paste pre-typed inputs, cut the few-second agent waits.
@@ -183,3 +183,20 @@ Keep: Scene 1 (0:20, trimmed) · Scene 3 intake (0:30) · Scene 5 case detail (0
 - Open a written `ServiceRequest` in the FHIR explorer and show the persisted narrative + parsed-back reasoning trail.
 - Flip `CP_ENABLE_ML=1` on x86 and show the IntegratedML model training and serving real predictions.
 - Toggle `CP_LLM_PROVIDER=anthropic` or the `ollama` profile to show provider-agnosticism.
+
+---
+
+## Appendix - Aligning with the contest (why these beats)
+
+We can't see vote counts or the jury rubric, so this is deduced from two things we *can* read: the contest brief, and the pattern in past InterSystems winners. Treat it as informed inference, not certainty.
+
+**What the brief literally asks for: "an AI agent called in an interoperability FHIR solution."** That single phrase drives the structure:
+- We open by *defining* the agent (perceive/reason/act/accountable) so the judge immediately maps the video to the brief.
+- Scene 8 shows the agent **inside the Interoperability production** in Visual Trace, because "called in an interoperability FHIR solution" is the exact requirement, and it's the thing a chatbot-style entry cannot show.
+- We show FHIR **reads and writes** (8 resource types), not just reads, because "for FHIR" implies acting on the record.
+
+**What past InterSystems winners suggest judges reward** (e.g. the AI-contest grand prize `fhir-integratedml-example`, and broad Grand-Prix winners): deep, native use of the platform's own capabilities, and a clean, working demo. So the video deliberately surfaces **Vector Search, AI Hub embeddings, IntegratedML, Interoperability, and IPM** (the technology-bonus list) as first-class beats, and every beat is a real action on `docker compose up`, never a mockup.
+
+**Where we differentiate within that frame:** the brief asks for *an* agent; we show a *coordinated team* with an orchestrator, and a **deterministic, escalate-only safety floor** no chatbot entry has. That's the part to linger on (Scene 6), because it's both on-brief (a safe agent acting on real records) and unique.
+
+**Honest caveat:** breadth and polish from established entrants are real. The video can't out-reputation them; it can make the *agent story* and the *safety guarantee* impossible to miss, which is the strongest hand we hold.
