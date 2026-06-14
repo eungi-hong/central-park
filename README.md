@@ -1,8 +1,8 @@
 # Triage Park
 
-**A multi-agent clinical triage platform on IRIS, with a deterministic safety floor that can only ever escalate.**
+**A multi-agent clinical triage platform on IRIS**
 
-[![Live demo](https://img.shields.io/badge/live_demo-online-2ea44f)](https://triagepark.78-47-167-98.sslip.io/) [![Why](https://img.shields.io/badge/video-why_triage_park-orange)](https://youtu.be/3hqf62btWYQ) [![Walkthrough](https://img.shields.io/badge/video-walkthrough-red)](https://youtu.be/GeOe1DwS50I) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · Built for the [InterSystems Programming Contest: AI Agents for FHIR](https://openexchange.intersystems.com/contest/46)
+[![Live demo](https://img.shields.io/badge/live_demo-online-2ea44f)](https://triagepark.78-47-167-98.sslip.io/) [![Why](https://img.shields.io/badge/video-why_triage_park-orange)](https://youtu.be/3hqf62btWYQ) [![Walkthrough](https://img.shields.io/badge/video-walkthrough-red)](https://youtu.be/Zf9vTcCACo0) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · Built for the [InterSystems Programming Contest: AI Agents for FHIR](https://openexchange.intersystems.com/contest/46)
 
 Every visit starts with the same manual work: take the patient's history, cross-check their record, judge how urgent it is. Triage Park does that first pass for you, as a coordinated team of specialist agents on InterSystems IRIS. A patient answers a short adaptive intake interview in their own language; a LangGraph triage agent reads their FHIR record and runs a tool-using reasoning loop over guidelines retrieved by vector search; a deterministic safety check screens for medication and allergy interactions; a reviewer grounds the citations and can escalate; and a clinician opens a ready-made handoff (a triage level: self-care, see-GP, urgent-care, or ED) with a cited rationale and the full reasoning trail. The clinician can then ask a read-only copilot about the case, run the agent toolbox, view cohort analytics, or query FHIR in natural language. Every interview and outcome is written back to FHIR as standard R4 resources.
 
@@ -12,7 +12,17 @@ It implements the contest's suggested **Conversational FHIR Triage Assistant**, 
 
 ## Contents
 
-[The agents](#the-agents) · [Why Triage Park](#why-triage-park) · [See it](#see-it) · [Quickstart](#quickstart) · [What it does](#what-it-does) · [How the triage agent works](#how-the-triage-agent-works) · [Architecture](#architecture) · [InterSystems features](#intersystems-features-used) · [Contest bonuses](#contest-bonuses) · [Demo data](#demo-data) · [Verify](#verify)
+- [The agents](#the-agents) — the full roster of reasoning agents, deterministic checks, and FHIR skills
+- [Why Triage Park](#why-triage-park) — what sets this entry apart: the depth under the breadth
+- [See it](#see-it) — videos, the live demo, and screenshots
+- [Quickstart](#quickstart) — one command to boot all three services
+- [What it does](#what-it-does) — the two front doors (patient intake, clinician console)
+- [How the triage agent works](#how-the-triage-agent-works) — the layered, one-directional safety design
+- [Architecture](#architecture) — services, data flow, and the sidecar/ML notes
+- [InterSystems features](#intersystems-features-used) — FHIR, Vector Search, AI Hub, Interoperability, IntegratedML
+- [Contest bonuses](#contest-bonuses) — which bonuses this submission earns, and where
+- [Demo data](#demo-data) — the seeded patients and cases
+- [Verify](#verify) — curl commands to confirm each capability
 
 ---
 
@@ -50,7 +60,7 @@ The three one-directional safety layers (the red-flag gate, the medication-inter
 
 Breadth alone isn't the point. What sets this entry apart is the depth underneath it:
 
-- **A deterministic safety floor that can only escalate.** Three safety layers (red-flag gate, medication-interaction agent, the reviewer's grounding step) run as non-LLM or one-directional checks. Each can raise acuity, never lower it, so patient safety never depends on a model getting it right in one shot.
+- **A deterministic safety floor that can only escalate.** Three safety layers (red-flag gate, medication-interaction check, and the reviewer's citation-grounding) run as non-LLM or one-directional checks. Each can raise acuity, never lower it, so patient safety never depends on a model getting it right in one shot.
 - **Real agentic reasoning, not a one-shot prompt.** The triage agent runs a bounded tool-using loop and a self-critique reviewer that drops hallucinated citations. Most entries call the model once; this one reasons, checks itself, and explains the result.
 - **Platform-native, not bolted on.** Agents run inside a real Interoperability production (every triage is traceable in Visual Trace); embeddings and `VECTOR_COSINE` search run server-side via AI Hub; readmission risk is IntegratedML.
 - **Full FHIR write-back and explainable.** Eight resource types are written back, and the console reconstructs an entire past case, including which agents ran, from FHIR alone, with no LLM re-run.
@@ -60,7 +70,7 @@ Breadth alone isn't the point. What sets this entry apart is the depth underneat
 
 ## See it
 
-**▶ [Why Triage Park](https://youtu.be/3hqf62btWYQ):** the problem it solves and why the pre-checkup is worth automating. · **▶ [Walkthrough](https://youtu.be/GeOe1DwS50I):** the patient interviews, the agent triages, the clinician reviews. · **[Try the live demo](https://triagepark.78-47-167-98.sslip.io/)** ([patient intake](https://triagepark.78-47-167-98.sslip.io/intake))
+**▶ [Why Triage Park](https://youtu.be/3hqf62btWYQ):** the problem it solves and why the pre-checkup is worth automating. · **▶ [Walkthrough](https://youtu.be/Zf9vTcCACo0):** the patient interviews, the agent triages, the clinician reviews. · **[Try the live demo](https://triagepark.78-47-167-98.sslip.io/)** ([patient intake](https://triagepark.78-47-167-98.sslip.io/intake))
 
 | Patient intake interview (`/intake`) | Clinician worklist (`/`) |
 | --- | --- |
@@ -136,7 +146,7 @@ validate_red_flags   ── hard emergency phrase matched ──▶ escalate to 
 
 `validate_red_flags` runs before any LLM call. A non-negated match on a can't-miss phrase (with a cheap negation guard, so "no slurred speech" does not fire) short-circuits straight to ED escalation and skips the model entirely. It can only escalate, so a missed keyword can never lower a triage level below a matched red flag.
 
-`check_safety` is the deterministic medication-interaction agent. It runs before the LLM, cross-referencing active medications and allergies against the complaint, writes any findings as FHIR `DetectedIssue`s, and sets a triage floor that the rest of the graph can only raise to.
+`check_safety` is the deterministic medication-interaction check. It runs before the LLM, cross-referencing active medications and allergies against the complaint, writes any findings as FHIR `DetectedIssue`s, and sets a triage floor that the rest of the graph can only raise to.
 
 `reason` is a bounded ReAct-style loop. Each turn the model returns JSON choosing either a tool call (`search_guidelines` on a refined query, `get_observations` to zoom into specific vitals/labs, or `get_risk_score` to consult the IntegratedML model) or a final triage. The loop is capped and falls back to a single structured call if the model never commits, so it always resolves.
 
@@ -238,9 +248,9 @@ The [contest bonuses](https://community.intersystems.com/post/technology-bonuses
 | First Article on Developer Community | 2 | Build write-up on the Developer Community |
 | Second Article on DC | 1 | Second write-up / translation |
 | First Time Contribution | 3 | First InterSystems Open Exchange submission |
-| Videos on YouTube (3 × 3) | 9 | [Why Triage Park](https://youtu.be/3hqf62btWYQ) · [Walkthrough](https://youtu.be/GeOe1DwS50I) · [Original demo](https://youtu.be/g6undsoEDms) |
+| Videos on YouTube (2 × 3) | 6 | [Why Triage Park](https://youtu.be/3hqf62btWYQ) · [Walkthrough](https://youtu.be/Zf9vTcCACo0) |
 
-**Total: 39 points.**
+**Total: 36 points.**
 
 ---
 
