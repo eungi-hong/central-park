@@ -1,16 +1,24 @@
 # Triage Park - Video Storyboard
 
-A production-ready plan for the contest video. This cut is **user- and
-market-led**: it opens on the people and the stakes, then gives a guided tour of
-the whole product, and only then shows the engineering underneath. The goal is
-that a judge finishes the video able to say *who this helps, why it matters, and
-why it is built better than anything else in the field.*
+A production-ready plan for the contest video. The contest is **"AI Agents for
+FHIR,"** so this cut is **agent-led**: it opens by naming the idea of an AI agent
+for FHIR, shows that Triage Park is a *team* of such agents (perceive the record,
+reason, act on FHIR, stay accountable), then gives a guided product tour, and
+ends under the hood. The goal is that a judge finishes able to say: *this is
+exactly the AI agent the brief asked for, built deeper and safer than the field,
+and it helps real people.*
+
+> **The thesis (say it in the first 15 seconds):** an AI agent for FHIR is not a
+> chatbot. It **perceives** a patient's record, **reasons** over it with tools,
+> **acts** by writing FHIR back, and is **accountable** - every step traceable
+> inside the interoperability production. Triage Park is a team of these agents,
+> with a deterministic safety floor so they can only ever escalate.
 
 Two cuts are described:
-- **Cut A - Flagship (target 5:00-6:00).** Market framing + full guided tour + under-the-hood. This is the one to lead with.
-- **Cut B - 3:00 highlight.** A tight subset for viewers who want it fast (scene map at the end).
+- **Cut A - Flagship (target 5:00-6:00).** Agent thesis + full guided tour + under-the-hood. Lead with this.
+- **Cut B - 3:00 highlight.** A tight subset (scene map at the end).
 
-Everything shown is real and demoable on `docker compose up`.
+Everything shown is real and demoable on `docker compose up`. See the appendix "Aligning with the contest" for why each beat is chosen.
 
 ---
 
@@ -35,21 +43,18 @@ Record 1920x1080, browser ~110% zoom, no bookmarks bar, cursor-highlight on. Pre
 
 ---
 
-## PART A - The story (0:00-1:05)
+## PART A - The agent thesis + the stakes (0:00-1:15)
 
-### Scene 1 - Cold open, the stakes (0:00-0:30) · B-ROLL + SLIDES
-**Visual:** Quiet b-roll or simple stock: a busy waiting room; a clinician scrolling a long chart late at night. Then three stat cards animate in (slide S2).
-**On-screen text (sequential):**
-- "Every visit starts with the same manual work."
-- "Rushing it is how red flags get missed."
-- "Hospital readmissions cost the US ~$17B a year."
+### Scene 1 - What is an AI agent for FHIR? (0:00-0:30) · SLIDES (S1, S0-loop)
+**Visual:** Title card "AI Agents for FHIR." Then a single animated loop diagram (slide S0): **Perceive (read FHIR) -> Reason (tools) -> Act (write FHIR) -> Trace (in the production)**, with a small lock icon labeled "safety floor: escalate-only."
+**On-screen text:** "Not a chatbot. An agent: perceive - reason - act - accountable."
 **Voiceover:**
-> "Before a clinician ever walks in, someone has to take the history, cross-check the record, and judge how urgent this is. It is repetitive, it eats clinician time, and when it is rushed, the things that matter most are the things that get missed. Triage Park does that first pass, safely."
+> "This contest asks for AI agents for FHIR. A real one isn't a chatbot. It perceives a patient's record, reasons over it with tools, acts by writing FHIR back, and stays accountable, every step traceable inside the interoperability production. Triage Park is a whole team of these agents."
 
-### Scene 2 - Who it is for (0:30-1:05) · SLIDE (three personas)
-**Visual:** Slide S3 with three columns: Patient · Clinician · Health system.
+### Scene 2 - Why it matters (0:30-1:15) · B-ROLL + SLIDE (three personas)
+**Visual:** Brief b-roll (busy waiting room; clinician on a long chart at night); then slide S3, three columns: Patient · Clinician · Health system. A stat card: "rushed triage misses red flags; readmissions cost the US ~$17B/yr."
 **Voiceover:**
-> "For the patient, it is a chance to be heard, in their own language, before they are even seen. For the clinician, it is a safe head start: a cited, ready-made handoff instead of a blank chart. And for the health system, it is a population view of risk and care gaps across every patient. One platform, a team of AI agents, running entirely inside InterSystems IRIS."
+> "And it points that capability at the most repetitive, most rushed, most error-prone minutes of care: the pre-checkup. For the patient, a chance to be heard, in their own language, before they are even seen. For the clinician, a safe, cited head start instead of a blank chart. For the health system, a view of risk and care gaps across the whole panel. A team of agents, running entirely inside InterSystems IRIS for Health."
 
 ---
 
@@ -109,7 +114,7 @@ This is the emotional peak. Give it room.
 **Action:** Visual Trace showing a triage as `Ens.MessageHeader` (REST inbox -> triage agent -> `Ens.AlertRequest`). Quick cut to Embedding Configurations (AI Hub). Optional: a one-line `pytest` green.
 **On-screen callouts:** "A real Interoperability production" · "Server-side embeddings + VECTOR_COSINE" · "IntegratedML risk model" · "Safety logic is unit-tested"
 **Voiceover:**
-> "And none of it is bolted on. The agents are called inside a real IRIS Interoperability production, so every triage is a traceable message. Embeddings and vector search run server-side through AI Hub, the risk model is IntegratedML, and the safety logic is covered by tests."
+> "And this is the agent loop from the opening, made literal. Perceive: the agents read the FHIR record. Reason: a tool-using loop over vector-searched guidelines and an IntegratedML risk model. Act: they write FHIR back. Accountable: every triage is a traceable message in the Interoperability production. None of it is bolted on, and the safety logic is covered by tests."
 
 ---
 
@@ -126,6 +131,7 @@ This is the emotional peak. Give it room.
 ## Slide deck (non-demo frames)
 
 Minimal, one idea per slide, large type.
+- **S0 The agent loop.** One diagram: **Perceive (read FHIR) -> Reason (tools) -> Act (write FHIR) -> Trace (in the production)**, with an escalate-only "safety floor" lock. This is the thesis slide; it recurs as a motif (and returns in Scene 8).
 - **S1 Title.** "Triage Park" + "A multi-agent clinical platform on IRIS." Authors, contest.
 - **S2 Stakes.** Three stats: repetitive manual triage · missed red flags · ~$17B/yr readmissions.
 - **S3 Who it's for.** Patient · Clinician · Health system, one promise each.
@@ -161,7 +167,8 @@ Keep: Scene 1 (0:20, trimmed) · Scene 3 intake (0:30) · Scene 5 case detail (0
 
 ## Recording & editing notes
 
-- **Lead with people, not features.** The first minute should make a non-engineer care. The architecture is the payoff, not the pitch.
+- **Lead with the agent idea, then the people.** First 15 seconds: name what an AI agent for FHIR is (perceive/reason/act/accountable). Then make a non-engineer care about the stakes. Architecture is the payoff at the end, not the pitch.
+- **Keep "agent" language throughout.** Say "the agents" not "the app"; "the agent acts/writes/escalates" not "the system does." The contest is about agents; the vocabulary should reflect it.
 - **The safety moment is the peak** - it is the one thing the field does not have. Slow down, zoom, chime.
 - **Burn in captions;** many judges watch muted first.
 - **Pace the demo:** paste pre-typed inputs, cut the few-second agent waits.
