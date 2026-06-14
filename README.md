@@ -4,7 +4,7 @@
 
 [![Live demo](https://img.shields.io/badge/live_demo-online-2ea44f)](https://triagepark.78-47-167-98.sslip.io/) [![Why](https://img.shields.io/badge/video-why_triage_park-orange)](https://youtu.be/3hqf62btWYQ) [![Walkthrough](https://img.shields.io/badge/video-walkthrough-red)](https://youtu.be/GeOe1DwS50I) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE) · Built for the [InterSystems Programming Contest: AI Agents for FHIR](https://openexchange.intersystems.com/contest/46)
 
-Every visit starts with the same manual work: take the patient's history, cross-check their record, judge how urgent it is. Triage Park does that first pass for you. A patient answers a short intake interview, a LangGraph agent reads their FHIR record and retrieves matching triage guidelines by vector search, and a clinician opens a ready-made handoff: a triage level (self-care, see-GP, urgent-care, or ED) with a cited rationale. Every interview and its outcome is written back to FHIR as standard R4 resources.
+Every visit starts with the same manual work: take the patient's history, cross-check their record, judge how urgent it is. Triage Park does that first pass for you. A patient answers a short adaptive intake interview, a LangGraph agent reads their FHIR record and runs a tool-using reasoning loop over matching triage guidelines retrieved by vector search, and a clinician opens a ready-made handoff: a triage level (self-care, see-GP, urgent-care, or ED) with a cited rationale. Every interview and its outcome is written back to FHIR as standard R4 resources.
 
 It implements the contest's suggested **Conversational FHIR Triage Assistant**, and the agent is called inside a real IRIS Interoperability production. A REST business service dispatches to a triage business operation that raises `Ens.AlertRequest` on escalation, so every triage is a traceable message in Visual Trace rather than a side-channel API call.
 
@@ -70,9 +70,9 @@ Two front doors share one FHIR backend.
 
 ---
 
-## The safety gate
+## How the triage agent works
 
-A core design choice in Triage Park is that clinical safety is layered, and every layer is one-directional: each can only raise acuity, never lower it.
+The agent is more than a retrieve-then-prompt pipeline. A core design choice is that clinical safety is layered, and every layer is one-directional: each can only raise acuity, never lower it.
 
 ```
 retrieve_guidelines
@@ -99,6 +99,10 @@ validate_red_flags   ── hard emergency phrase matched ──▶ escalate to 
 
 The red-flag scope is deliberately narrow: only presentations that warrant the ED regardless of context. Nuanced complaints such as chest tightness are intentionally not hard-coded, because they need the patient's FHIR risk factors and guideline retrieval to triage correctly, and that reasoning is the loop's job. The gate is the floor under the reasoner, not a replacement for it. These paths are covered by unit tests (`src/python/tests/`): the deterministic gate, the escalate-only verifier, and the loop's tool execution and fallback.
 
+### The adaptive interview
+
+Intake is agentic too. Rather than a fixed form, the agent picks each next question from the answers so far plus the patient's FHIR record, and stops once it can triage confidently. The flow is bounded so it always terminates: it asks **between 3 and 7 questions**, may not stop before the minimum, and is hard-capped at the maximum. A cardiac-risk-loaded patient reporting chest symptoms gets asked about exertion and radiation; a simple sore throat stops early. Each step is one POST to `/api/interview/next`; if the agent is unreachable the UI falls back to a fixed question set so intake never stalls.
+
 ---
 
 ## Architecture
@@ -120,7 +124,7 @@ The red-flag scope is deliberately narrow: only presentations that warrant the E
    │     Ens.AlertRequest on escalation                   │
    │   %Embedding.OpenAI (AI Hub)  ·  VECTOR_COSINE       │
    └───────────────────┼─────────────────────────────────┘
-                        │ POST /run · /interview
+                        │ POST /run · /interview · /interview/next
         central-park-agent (FastAPI + LangGraph)
           gather_context → retrieve_guidelines →
           validate_red_flags → reason (tool loop) →
@@ -234,12 +238,17 @@ curl -u _SYSTEM:SYS http://localhost:52773/centralpark/health         # IRIS
 curl -X POST http://localhost:52773/centralpark/vector/search -u _SYSTEM:SYS \
   -H 'Content-Type: application/json' -d '{"query":"chest tightness on exertion","k":3}'
 
-# Direct triage (chat LLM); writes a Communication when urgent
+# Direct triage (chat LLM); runs the tool loop + verifier, writes a Communication when urgent
 curl -X POST http://localhost:52773/centralpark/triage -u _SYSTEM:SYS \
   -H 'Content-Type: application/json' \
   -d '{"patient_id":"demo-patient-1","message":"My chest feels tight when I walk upstairs."}'
 
-# Run the safety-gate unit tests
+# Adaptive interview: ask the agent for the next question given the answers so far
+curl -X POST http://localhost:8001/interview/next \
+  -H 'Content-Type: application/json' \
+  -d '{"patient_id":"demo-patient-1","answers":[{"link_id":"chief-complaint","question":"What is bothering you?","answer":"Chest tightness on the stairs"}]}'
+
+# Run the unit tests: red-flag gate, reasoning loop, escalate-only verifier, interview
 docker compose exec agent python -m pytest tests/ -q
 ```
 
